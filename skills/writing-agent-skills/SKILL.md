@@ -5,6 +5,8 @@ description: Creates, edits, and reviews filesystem-based agent skills such as S
 
 # Writing Agent Skills
 
+**REQUIRED BACKGROUND:** Read and apply `skill:writing-in-ste`. It defines the writing style for every skill file.
+
 ## Overview
 
 Create concise, discoverable skills that help agents complete a specific, repeatable task. Focus on clear activation, useful instructions, and a structure that gives the agent the right detail at the right time.
@@ -54,6 +56,10 @@ Treat the description as routing metadata, not a full summary of the instruction
 
 ## Write effective instructions
 
+### Write in Simplified Technical English
+
+Write every skill file with `skill:writing-in-ste`. Skill text is descriptive, so keep sentences to 25 words. Workflow steps and checklist items are procedural, so use the imperative and keep sentences to 20 words. Keep every identifier, path, and link exact.
+
 ### State the purpose and outcome
 
 Start the body with an H1 that matches the skill name in readable title case. Then add an H2 overview. State the capability and the result it supports.
@@ -101,6 +107,7 @@ For each script, document its purpose, inputs, outputs, dependencies, and how to
 - [ ] The name describes one coherent capability and follows the target runtime's format.
 - [ ] The description states what the skill does and when it activates.
 - [ ] The description uses specific request language.
+- [ ] The skill text follows `skill:writing-in-ste`.
 - [ ] The overview, headings, workflow, and examples make the instructions easy to navigate.
 - [ ] Guidance explains important reasons and leaves room for context where appropriate.
 - [ ] Limit hard rules to genuine non-negotiable constraints.
