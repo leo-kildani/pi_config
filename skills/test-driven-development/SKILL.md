@@ -7,55 +7,56 @@ description: Apply Test-Driven Development (TDD) for a new feature, bug fixes, a
 
 ## Overview
 
-**Core Principle:** If you did not watch the test fail, you do not know whether it tests the right thing.
+**Core Principle:** If you do not watch the test fail, you do not know whether the test checks the right behavior.
 
-**Rule Enforcement:** Violating the letter of the rules violates the spirit of the rules.
+**Rule Enforcement:** If you break the letter of the rules, you break the spirit of the rules.
 
 ## Scope Check (Run This First)
 
 **New feature, bug fix, or behavior-changing Refactor**: ALWAYS follow the full Red-Green-Refactor cycle.
-**Pure structural change (behavior unchanged)**: NO new test required. ALWAYS run the full suite and confirm it stays green before calling the change done.
+**Pure structural change (behavior unchanged)**: NO new test required. ALWAYS run the full suite. Confirm the suite stays green before you call the change done.
 **Documentation or configuration change**: This skill does not apply.
 **No test framework detected**: ALWAYS stop and ask the operator. NEVER proceed on assumption.
-**Test command is flaky (nondeterministic pass or fail across repeated runs)**: ALWAYS stop and flag to the operator before continuing, NEVER treat any single run as ground truth.
+**Test command is flaky (nondeterministic pass or fail across repeated runs)**: ALWAYS stop and flag the flaky command to the operator. NEVER treat a single run as ground truth.
 
 ## Waiving TDD
 
-The operator can waive TDD, or just waive the refactor step, for one specific change. The waiver must be an explicit and direct instruction from the operator, not a rationalization you invent.
+The operator can waive TDD for one specific change. The operator can also waive only the refactor step. The waiver must be an explicit and direct instruction from the operator, not a rationalization you invent.
 
 ## The Iron Law
 
 **NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST**
 
-NEVER write code before writing the test and watching the test fail. ALWAYS implement fresh from the tests.
+Write the test first. Watch the test fail. Then write the code.
 
 **No Exceptions**:
 - NEVER keep code as a reference
-- NEVER adapt code while your writing a test
-- NEVER look at code before you have read or written its test and tested it
+- NEVER adapt code while you write a test
+- NEVER look at code before you read or write its test
+- NEVER look at code before you run its test
 
 ## Red-Green-Refactor Cycle
 
 1. **RED**: ALWAYS write one minimal failing test that shows what should happen.
-2. **Verify RED:** ALWAYS run your test command and evaluate the result:
+2. **Verify RED:** ALWAYS run your test command. Then evaluate the result:
    - If the test **fails correctly** for the expected missing feature, ALWAYS proceed to Step 3.
    - If the test **passes**, ALWAYS fix the test because it tests existing behavior.
-   - If the test **errors unexpectedly**, ALWAYS fix the test setup or error and re-verify.
-3. **GREEN:** ALWAYS write the simplest code that passes the test without adding unrequested features or premature engineering.
+   - If the test **errors unexpectedly**, ALWAYS fix the test setup or error. Then re-run the test.
+3. **GREEN:** ALWAYS write the simplest code that passes the test. Do not add unrequested features or premature engineering.
 4. **Verify GREEN:** ALWAYS run your test command and evaluate the result:
-   - If **all tests pass** cleanly and output is clean, ALWAYS proceed to Step 5 (or finish if refactor is waived).
-   - If the new test **fails**, ALWAYS fix the production code and re-verify.
+   - If **all tests pass**  and the output is clean, ALWAYS proceed to Step 5. If the operator waives the refactor step, finish here.
+   - If the new test **fails**, ALWAYS fix the production code. Then re-run the test.
    - If **other tests fail**, ALWAYS fix the regressions immediately.
-5. **REFACTOR:** ALWAYS clean up code while keeping tests green (unless explicitly waived by the operator). If you refactor, ALWAYS re-verify that tests remain green.
-6. **Repeat:** ALWAYS proceed to the next feature by returning to Step 1.
+5. **REFACTOR:** ALWAYS clean up the code and keep the tests green. An explicit operator waiver is the only exception. If you refactor, ALWAYS run the test again.
+6. **Repeat:** ALWAYS return to Step 1 for the next task.
 
 ### Before the First Cycle
 
-Detect what testing framework the codebase uses and how it runs its tests (e.g., `package.json` script, `pytest`, `go test`, `cargo test`). Use that exact command in every verify step. Cannot find one? Ask the operator.
+Find the testing framework that the codebase uses. Find the exact command that runs its test (e.g., `package.json` script, `pytest`, `go test`, `cargo test`). Use that exact command in every verify step. If you cannot find one, ask the operator.
 
 ### RED - Write a Failing Test
 
-**Required (once per task)**: ALWAYS read [writing-good-tests.md](references/writing-good-tests.md) before writing tests.
+**Required (once per task)**: ALWAYS read [writing-good-tests.md](references/writing-good-tests.md) before you write tests.
 
 Write one minimal test that shows what should happen.
 
@@ -102,8 +103,8 @@ Confirm:
 - The failure message is the one you expect.
 - The failure comes from the missing feature, not from a type.
 
-**Test passes?** You're testing existing behavior. Fix it.
-**Test errors?** Fix error, re-run until fails correctly.
+**If the test passes,** you test existing behavior. Fix the test.
+**If the test errors,** fix the error. Re-run the test until it fails in the correct way.
 
 ### GREEN - Minimal Code
 
@@ -145,11 +146,11 @@ Confirm:
 - The other tests still pass.
 - The output is clean (no errors, no warnings).
 
-**Test fails after a green test?** The test is right and the code is wrong. Fix the code. If the assertion itself does not encapsulate the feature correctly, fix the test, then re-verify red.
+**If the test fails after a green test,** the test is right and the code is wrong. Fix the code. If the assertion does not capture the feature correctly, fix the test. Then verify red again.
 
-**Other tests fail?** Fix now.
+**If other tests fail,** fix them now following the TDD cycle.
 
-**"Other tests" means the codebase suite, not just your file.** A green run of the test you wrote is not a green suite. Before you call the change done, run the codebase test command even when your task named only one test file. A scope statement in your task bounds the deliverable, not your verification. Any failure that run shows, including the one you did not cause, goes in the report by name. A red test you watched scroll past and did not mention is a report falsified by omission.
+**"Other tests" means the codebase suite, not just your file.** A green run of the test you wrote is not a green suite. Before you call the change done, run the codebase test command. Run it even when your task names only one test file. A scope statement in your task bounds the deliverable, not your verification. Any failure that run shows, including the one you did not cause, goes in the report by name. If you watch a test fail and do not mention it, your report is incomplete. 
 
 ### REFACTOR - Clean Up
 
@@ -164,7 +165,7 @@ NEVER force a refactor. If code is already clean, move on.
 
 **Keep tests green. Don't add behavior.**
 
-**Refactor breaks a tests?** Fix it. Re-run until green.
+**If the refactor breaks a test,** Fix it. Re-run the tests until they pass.
 
 ### Repeat
 
@@ -173,15 +174,15 @@ After the refactor, write the next failing test for the next task.
 ## Common Rationalizations
 
 - **"Too simple to test"**. Test anything with a branch, a loop, a side effect, or a boundary. A pure one-liner with none of these earns none. A test takes 30 seconds.
-- **"I'll test after"**. A test written after passes at once. That proves nothing. It may test the wrong thing, test implementation instead of behavior, or miss forgotten edge cases. You never watched it fail, so you never proved it catches the bug. Test-first forces that failure.
-- **"Tests after reach the same goal (spirit, not ritual)"**. Tests-after answer "what does this do?". Tests-first answer "what should this do?". A test written after is biased by code already written, verifying remembered cases rather than discovered ones. That is coverage without proof.
-- **"I already tested it by hand"**. Manual testing is ad-hoc, leaves no record of coverage, and cannot be re-run automatically. Under pressure, cases are forgotten. An automated test runs the same way every time.
-- **"Deleting X hours is wasteful"**. Sunk cost fallacy. That time is spent either way. The real choice is rewrite with TDD (high confidence) or keep and bolt tests on after (low confidence, likely bugs). Keeping untrusted code is the real waste.
-- **"Keep it as reference, write tests first"** — You will adapt it. That is testing after. Delete means delete.
+- **"I'll test after"**. A test written after passes at once. That proves nothing. It may test the wrong thing, test implementation instead of behavior, or miss forgotten edge cases. You never watched it fail. Therefore you never proved that it catches the bug. 
+- **"Tests after reach the same goal (spirit, not ritual)"**. Tests-after answer "what does this do?". Tests-first answer "what should this do?". Code that already exists biases the test you write after. That test verifies remembered cases, not discovered ones. That is coverage without proof.
+- **"I already tested it by hand"**. Manual testing is ad-hoc. It leaves no record of coverage. You cannot re-run it automatically. Under pressure, you forget cases. An automated test runs the same way every time.
+- **"Deleting X hours is wasteful"**. Sunk cost fallacy. That time is spent either way. The real choice is a rewrite with TDD, which gives high confidence. The other choice keeps the code and adds tests later, which gives low confidence and likely bugs. Keeping untrusted code is the real waste.
+- **"Keep it as reference, write tests first"** — You adapt it. That is testing after. Delete means delete.
 - **"I need to explore first"**. Fine. Throw away the exploration. Start with TDD.
 - **"The test is hard, so the design is unclear"** — Listen to the test. Hard to test means hard to use.
-- **"TDD will slow me down"**. TDD is the pragmatic path. It catches bugs before commit, stops regressions, and lets you refactor without fear. "Pragmatic" shortcuts lead to production debugging, which is slower.
-- **"Manual testing is faster"**. Manual testing does not prove edge cases, and you must re-test every change manually.
+- **"TDD will slow me down"**. TDD is the pragmatic path. It catches bugs before commit. It stops regression. It lets you refactor without fear. "Pragmatic" shortcuts lead to production debugging, which is slower.
+- **"Manual testing is faster"**. Manual testing does not prove edge cases. You must re-test every change manually.
 - **"The existing code has no tests"**. You are improving it. Add tests for the existing code.
 
 ## Red Flags - STOP and Start Over
@@ -240,30 +241,31 @@ Extract the validation if you add more fields.
 
 Before you mark the work complete:
 
-- [ ] Scope check run first. Feature, bugfix, or refactor classified correctly.
+- [ ] You ran the scope check first.
+- [ ] You classified the change as a feature, bugfix, or a refactor.
 - [ ] You followed the RED-GREEN-REFACTOR cycle correctly, in order for each task.
-- [ ] Your tests were written using [writing-good-tests.md](references/writing-good-tests.md).
-- [ ] Your code was written using [writing-good-code.md](references/writing-good-code.md).
+- [ ] You wrote your tests with [writing-good-tests.md](references/writing-good-tests.md).
+- [ ] You wrote your code with [writing-good-code.md](references/writing-good-code.md).
 - [ ] All tests pass.
 - [ ] The output is clean. No errors and no warnings.
-- [ ] The tests cover all edge cases and errors for their specific task and nothing else.
+- [ ] The tests cover all edge cases and errors for their task only.
 
-You cannot check all the boxes? You skipped TDD. Start over.
+If you cannot check all the boxes, you skipped TDD. Start over.
 
 ## When Stuck
 
-**You don't know how to test?** Write the API you wish you had. Write the assertion first. Ask the operator.
-**Test is too complicated?** The design is too complicated. Simplify the design interface.
-**Must mock everything?** The code is too coupled. Use dependency injection.
-**Test setup is huge?** Extract helpers. Still complex? Simplify the design.
+**If you do not know how to test,** write the API you wish you had. Write the assertion first. Then ask the operator.
+**If the test is too complicated,** the design is too complicated. Simplify the design interface.
+**If you must mock everything,** the code is too coupled. Use dependency injection.
+**If the test setup is huge,** extract helpers. If the design is still complex, simplify it.
 
 ## Debugging Integration
 
-Follow the TDD cycle for every bug. The failing test proves the fix and stops the regression.
+Follow the TDD cycle for every bug. The failing test proves the fix. It also stops the regression.
 
 ## Final Rule
 
-**Production Code** -> a test existsand failed first
+**Production Code** -> a test exists and failed first
 **Otherwise** -> not TDD
 
 No exceptions without the operator's permission.

@@ -9,23 +9,23 @@ description: Use when evaluating whether an agent skill changes agent behavior, 
 
 ## Overview
 
-Evaluate skills with a documentation-focused TDD cycle: define realistic pressure scenarios, observe behavior without the skill, then compare behavior with the skill loaded. A skill has value only when an agent can find and apply its guidance in the situations it targets.
+Evaluate skills with a documentation-focused TDD cycle. Define realistic pressure scenarios. Observe behavior without the skill. Then compare behavior with the skill in context. A skill has value only when an agent can find and apply its guidance in the situations it targets.
 
 ## When to use
 
 Use this process when a skill is new or changed, when an agent ignores or misapplies its instructions, or when you need evidence that a skill handles realistic cases.
 
-Do not treat a text review as a behavior test. Reading a skill can find unclear wording, but it cannot show how an agent will act under pressure.
+Do not treat a text review as a behavior test. Reading a skill can find unclear wording, but it cannot show how an agent acts under pressure.
 
 ## Test cycle
 
 ### RED: Define and run the baseline
 
-1. Identify the behavior the skill is intended to change. Express success as observable actions or output, not as “follows the skill.”
-2. Create realistic scenarios before evaluating the skill. Include the pressures and context that commonly cause the target failure.
+1. Identify the behavior the skill is intended to change. Express success as observable actions or output, not as "follows the skill."
+2. Create realistic scenarios before you evaluate the skill. Include the pressures and context that commonly cause the target failure.
 3. Use an agent context where the skill is not available. Do not expose the skill's contents or paraphrase its rules in the prompt.
-4. Run each scenario and record the agent's exact relevant behavior, including rationalizations, omissions, and any successful behavior.
-5. Confirm the baseline reveals the specific gap the skill is meant to address. If the agent already meets the criteria, the scenario does not demonstrate a need; revise the scenario or report that the baseline did not fail.
+4. Run each scenario. Record the agent's exact relevant behavior. Include rationalizations, omissions, and any successful behavior.
+5. Confirm the baseline reveals the specific gap the skill is meant to address. If the agent already meets the criteria, the scenario does not demonstrate a need. Revise the scenario, or report that the baseline did not fail.
 
 Use a separate agent or subagent for the scenario when available. Keep the evaluator's coaching out of the tested context. If isolation is unavailable, state that limitation and avoid presenting the result as an independent baseline.
 
@@ -51,18 +51,18 @@ Choose the scenario type that matches the skill's intended behavior:
 
 | Skill behavior | Scenario focus | Passing evidence |
 |---|---|---|
-| Discipline or hard constraints | Apply realistic pressure to skip or violate the rule; combine pressures when relevant | Agent follows the constraint and does not use a rationale to bypass it |
-| Technique | Apply the method to a new, representative case, including a relevant variation | Agent applies the method correctly and adapts to the case |
+| Discipline or hard constraints | Apply realistic pressure to skip or violate the rule. Combine pressures when relevant | Agent follows the constraint and does not use a rationale to bypass it |
+| Technique | Apply the method to a new, representative case. Include a relevant variation | Agent applies the method correctly and adapts to the case |
 | Decision pattern | Include cases where the pattern applies and counterexamples where it does not | Agent identifies when to apply the pattern and when not to |
-| Reference | Ask for retrieval and application of information from the reference | Agent locates the relevant guidance and applies it correctly |
+| Reference | Ask the agent to retrieve and apply information from the reference | Agent locates the relevant guidance and applies it correctly |
 
 Vary phrasing and context to check that the skill handles intent rather than a memorized prompt. Include nearby non-applicable cases when false activation or over-application could cause harm.
 
 ## Pressure and rationalization checks
 
-For skills that enforce discipline, test realistic conflicts such as urgency, sunk cost, fatigue, user pressure, or claims that the current case is an exception. Combine pressures when the skill must withstand more than one at a time.
+For skills that enforce discipline, test realistic conflicts. Examples are urgency, sunk cost, fatigue, operator pressure, or a claim that the current case is an exception. Combine pressures when the skill must withstand more than one at a time.
 
-Record the agent's own reasoning that precedes a violation. Treat statements such as “just this once,” “I can do it afterward,” or “the intent is still met” as evidence of a loophole when they lead to non-compliance. Verify that a revised skill prevents the behavior, not just that the agent can recite a stronger rule.
+Record the agent's own reasoning that precedes a violation. Treat statements such as "just this once," "I can do it afterward," or "the intent is still met" as evidence of a loophole when they lead to non-compliance. Verify that a revised skill prevents the behavior, not just that the agent can recite a stronger rule.
 
 For output-shape failures, assess whether required elements appear in the required order. For omission failures, check whether every required element is present. Do not use a pressure test to measure a problem it does not represent.
 
@@ -87,7 +87,8 @@ Report baseline and with-skill results separately. State which scenarios passed,
 - [ ] Scenarios represent the skill's intended behavior.
 - [ ] Baseline runs occurred without the skill or its instructions in context.
 - [ ] Success criteria are observable and unchanged between baseline and with-skill runs.
-- [ ] With-skill runs used a fresh context and the skill was available.
+- [ ] With-skill runs used a fresh context with the skill available.
 - [ ] Results distinguish compliance from merely restating instructions.
-- [ ] Observed failures informed revisions, and relevant scenarios were re-run.
-- [ ] Remaining failures and test limitations are reported clearly.
+- [ ] Observed failures informed revisions.
+- [ ] You re-ran the relevant scenarios.
+- [ ] Report remaining failures and test limitations clearly.
