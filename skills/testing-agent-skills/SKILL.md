@@ -1,6 +1,6 @@
 ---
 name: testing-agent-skills
-description: Use when evaluating whether an agent skill changes agent behavior, checking skill compliance under pressure, or diagnosing why a skill is ignored or misapplied.
+description: Evaluates whether an agent skill changes agent behavior. Use when checking skill compliance under pressure or diagnosing why a skill is ignored or misapplied.
 ---
 
 # Testing Agent Skills
@@ -13,7 +13,7 @@ Evaluate skills with a documentation-focused TDD cycle. Define realistic pressur
 
 ## When to use
 
-Use this process when a skill is new or changed, when an agent ignores or misapplies its instructions, or when you need evidence that a skill handles realistic cases.
+Use this process when a skill is new or changed. Use it when an agent ignores or misapplies the instructions, or when you need evidence that a skill handles realistic cases.
 
 Do not treat a text review as a behavior test. Reading a skill can find unclear wording, but it cannot show how an agent acts under pressure.
 
@@ -62,7 +62,7 @@ Vary phrasing and context to check that the skill handles intent rather than a m
 
 For skills that enforce discipline, test realistic conflicts. Examples are urgency, sunk cost, fatigue, operator pressure, or a claim that the current case is an exception. Combine pressures when the skill must withstand more than one at a time.
 
-Record the agent's own reasoning that precedes a violation. Treat statements such as "just this once," "I can do it afterward," or "the intent is still met" as evidence of a loophole when they lead to non-compliance. Verify that a revised skill prevents the behavior, not just that the agent can recite a stronger rule.
+Record the agent's own reasoning that precedes a violation. Statements such as "just this once," "I can do it afterward," or "the intent is still met" can signal a loophole. Treat them as a loophole when they lead to non-compliance. Verify that a revised skill prevents the behavior, not just that the agent can recite a stronger rule.
 
 For output-shape failures, assess whether required elements appear in the required order. For omission failures, check whether every required element is present. Do not use a pressure test to measure a problem it does not represent.
 

@@ -1,5 +1,17 @@
 # Writing Good Tests
 
+## Contents
+
+- [Usage Scope](#usage-scope)
+- [Overview](#overview)
+- [Principle 1: Name the Break](#principle-1-name-the-break)
+- [Principle 2: Exercise the Real Thing](#principle-2-exercise-the-real-thing)
+- [Tests Ship With the Implementation](#tests-ship-with-the-implementation)
+- [The Mutation Check](#the-mutation-check)
+- [Quick Reference](#quick-reference)
+- [Warning Signs](#warning-signs)
+- [Good Tests](#good-tests)
+
 ## Usage Scope
 
 **Load this reference when:** you write or change tests, add mocks, or add cleanup or helper methods for tests.
@@ -16,7 +28,7 @@ Strict TDD produces both results. A test you write first and watch fail against 
 
 ## Principle 1: Name the Break
 
-Before you write the test body, ALWAYS answer two questions: **Which production change breaks this test? Is that change a bug or a decision?** A test earns its place when it catches a bug: a wrong branch, a missing side effect, a boundary case, or a broken contract.
+Before you write the test body, answer two questions: **Which production change breaks this test? Is that change a bug or a decision?** A test earns its place when it catches a bug. Examples include a wrong branch, a missing side effect, a boundary case, or a broken contract.
 
 **Derive expectations independently:** Use literals and hand-checked fixtures. Table-driven tests with literal `want` values are the preferred shape. If the code under test or a helper computes the expected value, the assertion always passes:
 
@@ -30,32 +42,26 @@ expect(buildSearchQuery({ tag: 'urgent' })).toBe('tag:"urgent"');
 
 ```
 
-**No change detectors:** If only intentional decisions can fail a test, the test is a change detector. Examples: a constant's value, exact message wording, or private structure. Such a test fires on a redesign. It sleeps through bugs. Test the behavior that depends on the decision: not `expect(MAX_RETRIES).toBe(5)`, but "the code retries a failing call 5 times and never makes a 6th attempt."
+**No change detectors:** If only intentional decisions can fail a test, the test is a change detector. Examples: a constant's value, exact message wording, or private structure. Such a test fires on a redesign. It sleeps through bugs. Test the behavior that depends on the decision. Do not write `expect(MAX_RETRIES).toBe(5)`. Instead, assert that the code retries a failing call 5 times and never makes a 6th attempt.
 
 **Behavior, not text:** A check that a script, skill, or config contains an exact line proves only that the source holds that line. Run scripts against controlled inputs. Assert outputs, side effects, or exit codes. Test a document that instructs agents through the consuming agent's behavior (`superpowers:writing-skills`). Prose for humans earns no test at all.
 
-**Your code, not the framework:** Test the contract your code makes at its boundaries: the route you register, the query you emit, and the payload you produce. The maintainers of upstream code write tests for those mechanics. One classic example: a test that your router invokes a registered handler tests the framework, not your code. When upstream behavior genuinely surprises you, write one narrow characterization test that names the assumption. The same boundary applies inside your code. Constructors, getters, constants, and trivial forwarding earn a test only when they validate, normalize, default, derive, enforce, or cause a side effect. Otherwise, assert the first consumer-visible result that depends on them.
+**Your code, not the framework:** Test the contract your code makes at its boundaries. These are the route you register, the query you emit, and the payload you produce. The maintainers of upstream code write tests for those mechanics. One classic example: a test that your router invokes a registered handler tests the framework, not your code. When upstream behavior genuinely surprises you, write one narrow characterization test that names the assumption. The same boundary applies inside your code. Constructors, getters, constants, and trivial forwarding earn a test only when they validate, normalize, default, derive, enforce, or cause a side effect. Otherwise, assert the first consumer-visible result that depends on them.
 
 ### Gate Function
 
-```
-BEFORE writing the test body:
-  ALWAYS name the production change that breaks this test.
+Before you write the test body:
 
-  - Cannot name one         → redesign around an observable behavior
-  - "The source text changed" → run the artifact and assert its effects
-  - Only intentional decisions → change detector. Test the behavior
-                                 that depends on the decision
-
-  ALWAYS confirm the expected value is derived without the code under test.
-  - IF it reuses the code's logic or helpers:
-    Replace it with a literal or hand-checked fixture
-
-```
+- [ ] Name the production change that breaks this test.
+  - Cannot name one: redesign around an observable behavior.
+  - The source text changed: run the artifact and assert its effects.
+  - Only intentional decisions: this is a change detector. Test the behavior that depends on the decision.
+- [ ] Confirm the expected value is derived without the code under test.
+  - If it reuses the code's logic or helpers, replace it with a literal or hand-checked fixture.
 
 ## Principle 2: Exercise the Real Thing
 
-**The mock earns no assertions:** A mock assertion passes when the mock is present. It fails when the mock is absent. It says nothing about the component. ALWAYS assert the real component's behavior. If you check the mock, unmock it or delete the assertion.
+**The mock earns no assertions:** A mock assertion passes when the mock is present. It fails when the mock is absent. It says nothing about the component. Assert the real component's behavior. If you check the mock, unmock it or delete the assertion.
 
 ```typescript
 // RIGHT: Real behavior
@@ -81,7 +87,7 @@ vi.mock('MCPServerManager');
 
 ```
 
-**Make doubles specific:** When arguments, call counts, or ordering are part of the contract, ALWAYS assert them. A fake that accepts anything verifies nothing. Give each branch (success, error, malformed) its own fixture or spy. Then the wrong branch cannot satisfy the expectation.
+**Make doubles specific:** When arguments, call counts, or ordering are part of the contract, assert them. A fake that accepts anything verifies nothing. Give each branch (success, error, malformed) its own fixture or spy. Then the wrong branch cannot satisfy the expectation.
 
 **Mirror real data completely:** Mock the complete structure as it exists in reality. Include all documented fields, not just the ones your test reads. Partial mocks fail silently when downstream code reads an omitted field. The test passes while integration breaks.
 
@@ -93,15 +99,12 @@ vi.mock('MCPServerManager');
 
 ### Gate Function
 
-```
-BEFORE adding a mock or test helper:
-  - List the real method's side effects. Keep the ones the test
-    depends on real. Mock the slow or external level below them.
-  - Mock responses must mirror the complete real structure.
-  - A method only tests call lives in test utilities, never production.
-  - About to assert on the mock itself? Unmock it or delete the assertion.
+Before you add a mock or test helper:
 
-```
+- [ ] List the real method's side effects. Keep the ones the test depends on real. Mock the slow or external level below them.
+- [ ] Mirror the complete real structure in every mock response.
+- [ ] Keep a method that only tests call in test utilities, never in production.
+- [ ] Do not assert on the mock itself. Unmock it or delete the assertion.
 
 ## Tests Ship With the Implementation
 
@@ -109,7 +112,7 @@ The TDD cycle (i.e., failing test, minimal implementation, refactor) defines wha
 
 ## The Mutation Check
 
-Before you finish, ALWAYS mentally mutate the production code. At least one test must fail for each realistic mutation:
+Before you finish, mentally mutate the production code. At least one test must fail for each realistic mutation:
 
 - Wrong constant or argument
 - Wrong branch handler
@@ -123,16 +126,16 @@ A mutation nothing catches marks the behavior as unprotected or the test as taut
 
 | When you... | Do |
 | --- | --- |
-| Write any test | ALWAYS name the break it catches: a bug, not a decision |
-| Build an expected value | ALWAYS derive it by hand. Never use the code under test |
-| Test a script or document | ALWAYS run it or pressure-test its consumer. Never grep its text |
-| Reach for a dependency test | ALWAYS test your boundary contract, not their documented mechanics |
-| Want to assert on a mocked element | ALWAYS test the real component, or unmock it |
-| Are about to mock a method | ALWAYS learn its side effects. Mock the slow or external level |
-| Build a mock response | ALWAYS mirror the real structure completely |
-| Need cleanup only tests use | ALWAYS put cleanup that only tests use in test utilities |
-| Watch mock setup balloon | ALWAYS switch to an integration test with real components |
-| Finish a test file | ALWAYS run the mutation check |
+| Write any test | Name the break it catches: a bug, not a decision |
+| Build an expected value | Derive it by hand. Do not use the code under test |
+| Test a script or document | Run it or pressure-test its consumer. Do not grep its text |
+| Reach for a dependency test | Test your boundary contract, not their documented mechanics |
+| Want to assert on a mocked element | Test the real component, or unmock it |
+| Are about to mock a method | Learn its side effects. Mock the slow or external level |
+| Build a mock response | Mirror the real structure completely |
+| Need cleanup only tests use | Put cleanup that only tests use in test utilities |
+| Watch mock setup balloon | Switch to an integration test with real components |
+| Finish a test file | Run the mutation check |
 
 ## Warning Signs
 

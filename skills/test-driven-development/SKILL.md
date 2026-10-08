@@ -1,6 +1,6 @@
 ---
 name: test-driven-development
-description: Apply Test-Driven Development (TDD) for a new feature, bug fixes, and behavior-changing refactors. Use when writing code that requires a test first, following the Red-Green-Refactor cycle. Do NOT use for configuration changes, documentation, or pure structural refactors.
+description: Applies Test-Driven Development (TDD) to new features, bug fixes, and behavior-changing refactors. Use when writing code that requires a test first, following the Red-Green-Refactor cycle. Do not use for configuration changes, documentation, or pure structural refactors.
 ---
 
 # Test-Driven Development (TDD)
@@ -13,11 +13,11 @@ description: Apply Test-Driven Development (TDD) for a new feature, bug fixes, a
 
 ## Scope Check (Run This First)
 
-**New feature, bug fix, or behavior-changing Refactor**: ALWAYS follow the full Red-Green-Refactor cycle.
-**Pure structural change (behavior unchanged)**: NO new test required. ALWAYS run the full suite. Confirm the suite stays green before you call the change done.
+**New feature, bug fix, or behavior-changing Refactor**: Follow the full Red-Green-Refactor cycle.
+**Pure structural change (behavior unchanged)**: NO new test required. Run the full suite. Confirm the suite stays green before you call the change done.
 **Documentation or configuration change**: This skill does not apply.
-**No test framework detected**: ALWAYS stop and ask the operator. NEVER proceed on assumption.
-**Test command is flaky (nondeterministic pass or fail across repeated runs)**: ALWAYS stop and flag the flaky command to the operator. NEVER treat a single run as ground truth.
+**No test framework detected**: Stop and ask the operator. Do not proceed on assumption.
+**Test command is flaky (nondeterministic pass or fail across repeated runs)**: Stop and flag the flaky command to the operator. Do not treat a single run as ground truth.
 
 ## Waiving TDD
 
@@ -37,18 +37,18 @@ Write the test first. Watch the test fail. Then write the code.
 
 ## Red-Green-Refactor Cycle
 
-1. **RED**: ALWAYS write one minimal failing test that shows what should happen.
-2. **Verify RED:** ALWAYS run your test command. Then evaluate the result:
-   - If the test **fails correctly** for the expected missing feature, ALWAYS proceed to Step 3.
-   - If the test **passes**, ALWAYS fix the test because it tests existing behavior.
-   - If the test **errors unexpectedly**, ALWAYS fix the test setup or error. Then re-run the test.
-3. **GREEN:** ALWAYS write the simplest code that passes the test. Do not add unrequested features or premature engineering.
-4. **Verify GREEN:** ALWAYS run your test command and evaluate the result:
-   - If **all tests pass**  and the output is clean, ALWAYS proceed to Step 5. If the operator waives the refactor step, finish here.
-   - If the new test **fails**, ALWAYS fix the production code. Then re-run the test.
-   - If **other tests fail**, ALWAYS fix the regressions immediately.
-5. **REFACTOR:** ALWAYS clean up the code and keep the tests green. An explicit operator waiver is the only exception. If you refactor, ALWAYS run the test again.
-6. **Repeat:** ALWAYS return to Step 1 for the next task.
+1. **RED**: Write one minimal failing test that shows what should happen.
+2. **Verify RED:** Run your test command. Then evaluate the result:
+   - If the test **fails correctly** for the expected missing feature, proceed to Step 3.
+   - If the test **passes**, fix the test because it tests existing behavior.
+   - If the test **errors unexpectedly**, fix the test setup or error. Then re-run the test.
+3. **GREEN:** Write the simplest code that passes the test. Do not add unrequested features or premature engineering.
+4. **Verify GREEN:** Run your test command and evaluate the result:
+   - If **all tests pass**  and the output is clean, proceed to Step 5. If the operator waives the refactor step, finish here.
+   - If the new test **fails**, fix the production code. Then re-run the test.
+   - If **other tests fail**, fix the regressions immediately.
+5. **REFACTOR:** Clean up the code and keep the tests green. An explicit operator waiver is the only exception. If you refactor, run the test again.
+6. **Repeat:** Return to Step 1 for the next task.
 
 ### Before the First Cycle
 
@@ -56,7 +56,7 @@ Find the testing framework that the codebase uses. Find the exact command that r
 
 ### RED - Write a Failing Test
 
-**Required (once per task)**: ALWAYS read [writing-good-tests.md](references/writing-good-tests.md) before you write tests.
+**Required (once per task)**: Read [writing-good-tests.md](references/writing-good-tests.md) before you write tests.
 
 Write one minimal test that shows what should happen.
 
@@ -92,7 +92,7 @@ The name is vague. The test checks the mock, not the code.
 
 ### Verify RED - Watch It Fail
 
-**MANDATORY. NEVER skip.**
+**Do not skip this step.**
 
 ```sh
 <test command> <test file>
@@ -108,7 +108,7 @@ Confirm:
 
 ### GREEN - Minimal Code
 
-**Required (once per task)**: ALWAYS read [writing-good-code.md](references/writing-good-code.md) before writing code.
+**Required (once per task)**: Read [writing-good-code.md](references/writing-good-code.md) before writing code.
 
 Write the simplest code that passes the test.
 
@@ -135,7 +135,7 @@ Do not add features. Do not refactor other code. Do not "improve" past the test.
 
 ### Verify GREEN - Watch It Pass
 
-**MANDATORY. NEVER skip.**
+**Do not skip this step.**
 
 ```sh
 <test command> <test file>
@@ -161,7 +161,7 @@ After green only:
 - Improve names
 - Extract helpers
 
-NEVER force a refactor. If code is already clean, move on.
+Do not force a refactor. If code is already clean, move on.
 
 **Keep tests green. Don't add behavior.**
 
@@ -178,9 +178,9 @@ After the refactor, write the next failing test for the next task.
 - **"Tests after reach the same goal (spirit, not ritual)"**. Tests-after answer "what does this do?". Tests-first answer "what should this do?". Code that already exists biases the test you write after. That test verifies remembered cases, not discovered ones. That is coverage without proof.
 - **"I already tested it by hand"**. Manual testing is ad-hoc. It leaves no record of coverage. You cannot re-run it automatically. Under pressure, you forget cases. An automated test runs the same way every time.
 - **"Deleting X hours is wasteful"**. Sunk cost fallacy. That time is spent either way. The real choice is a rewrite with TDD, which gives high confidence. The other choice keeps the code and adds tests later, which gives low confidence and likely bugs. Keeping untrusted code is the real waste.
-- **"Keep it as reference, write tests first"** — You adapt it. That is testing after. Delete means delete.
+- **"Keep it as reference, write tests first"**: You adapt it. That is testing after. Delete means delete.
 - **"I need to explore first"**. Fine. Throw away the exploration. Start with TDD.
-- **"The test is hard, so the design is unclear"** — Listen to the test. Hard to test means hard to use.
+- **"The test is hard, so the design is unclear"**: Listen to the test. Hard to test means hard to use.
 - **"TDD will slow me down"**. TDD is the pragmatic path. It catches bugs before commit. It stops regression. It lets you refactor without fear. "Pragmatic" shortcuts lead to production debugging, which is slower.
 - **"Manual testing is faster"**. Manual testing does not prove edge cases. You must re-test every change manually.
 - **"The existing code has no tests"**. You are improving it. Add tests for the existing code.
@@ -202,40 +202,6 @@ After the refactor, write the next failing test for the next task.
 - "This case is different because..."
 
 **All of these mean: Delete your work. Start over with TDD.**
-
-## Example: Bug Fix
-
-**Bug:** The form accepts an empty email.
-
-1. **RED**
-```
-test('rejects an empty email')
-  result = submitForm({ email: '' })
-  assert result.error == 'Email required'
-```
-
-2. **Verify RED**
-```sh
-<test command>
-FAIL: expected 'Email required', got undefined
-```
-
-3. **GREEN**
-```
-function submitForm(data)
-  if data.email is empty or blank:
-    return { error: 'Email required' }
-  # ...
-```
-
-4. **Verify GREEN**
-```sh
-<test command>
-PASS
-```
-
-5. **REFACTOR**
-Extract the validation if you add more fields.
 
 ## Verification Checklist
 
