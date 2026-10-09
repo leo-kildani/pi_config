@@ -5,7 +5,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { StringEnum, type JsonValue } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
-import { assertProviderAvailable } from "./credentials.js";
+import { assertProviderAvailable, setProviderApiKey } from "./credentials.js";
 import { fetchExa, searchExa } from "./exa.js";
 import { fetchParallel, searchParallel } from "./parallel.js";
 import {
@@ -310,6 +310,49 @@ export default function (pi: ExtensionAPI) {
         modelId: ctx.model?.id,
         onUpdate,
       });
+    },
+  });
+
+  pi.registerCommand("webtools", {
+    description: "Configure an Exa or Parallel API key",
+    getArgumentCompletions: (prefix) =>
+      "config".startsWith(prefix.trim().toLowerCase())
+        ? [{ value: "config", label: "config" }]
+        : null,
+    handler: async (args, ctx) => {
+      if (args.trim() !== "config") {
+        ctx.ui.notify("Usage: /webtools config", "warning");
+        return;
+      }
+      if (!ctx.hasUI) {
+        ctx.ui.notify("Webtools configuration requires an interactive UI.", "warning");
+        return;
+      }
+
+      const providerName = await ctx.ui.select("Webtools provider", ["Exa", "Parallel"]);
+      if (!providerName) return;
+      const provider = providerName === "Exa"
+        ? "exa"
+        : providerName === "Parallel"
+          ? "parallel"
+          : undefined;
+      if (!provider) return;
+
+      const apiKey = await ctx.ui.input(`${providerName} API key`, "Enter API key");
+      if (apiKey === undefined) return;
+      const trimmedKey = apiKey.trim();
+      if (!trimmedKey) {
+        ctx.ui.notify("API key cannot be empty.", "warning");
+        return;
+      }
+
+      try {
+        setProviderApiKey(provider, trimmedKey);
+        ctx.ui.notify(`Saved ${providerName} API key to env.json.`, "info");
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        ctx.ui.notify(`Could not save API key: ${message}`, "error");
+      }
     },
   });
 }

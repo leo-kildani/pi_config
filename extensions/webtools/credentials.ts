@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -32,6 +32,15 @@ function readEnvConfig(): EnvConfig {
     }
   }
   return config as EnvConfig;
+}
+
+export function setProviderApiKey(
+  provider: "exa" | "parallel",
+  apiKey: string,
+): void {
+  const config = readEnvConfig();
+  config[provider] = apiKey;
+  writeFileSync(envJsonPath, `${JSON.stringify(config, null, 2)}\n`);
 }
 
 export function loadCredentials() {
