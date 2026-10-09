@@ -1,1 +1,6 @@
 .obsidian/
+node_modules/
+.pnpm-store/
+*.logs
+*.tsbuildinfo
+extensions/*/.env
