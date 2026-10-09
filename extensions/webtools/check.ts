@@ -1,4 +1,8 @@
 import assert from "node:assert";
+import { readFileSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { assertProviderAvailable, loadCredentials } from "./credentials.ts";
 import {
   ExaCreditsExhaustedError,
   SearchAbortedError,
@@ -17,6 +21,54 @@ import type {
   WebFetchResponse,
   WebSearchResponse,
 } from "./types.ts";
+
+// A local JSON file supplies credentials when process variables are absent.
+const webtoolsDir = dirname(fileURLToPath(import.meta.url));
+const envJsonPath = join(webtoolsDir, "env.json");
+const previousEnvJson = (() => {
+  try {
+    return { exists: true, text: readFileSync(envJsonPath, "utf8") };
+  } catch {
+    return { exists: false, text: "" };
+  }
+})();
+const previousExaKey = process.env.EXA_API_KEY;
+const previousParallelKey = process.env.PARALLEL_API_KEY;
+try {
+  delete process.env.EXA_API_KEY;
+  delete process.env.PARALLEL_API_KEY;
+  writeFileSync(envJsonPath, JSON.stringify({ exa: " exa-test ", parallel: " parallel-test " }));
+  assert.deepStrictEqual(loadCredentials(), {
+    exaApiKey: "exa-test",
+    parallelApiKey: "parallel-test",
+  });
+  process.env.EXA_API_KEY = " environment-exa ";
+  process.env.PARALLEL_API_KEY = " environment-parallel ";
+  assert.deepStrictEqual(loadCredentials(), {
+    exaApiKey: "environment-exa",
+    parallelApiKey: "environment-parallel",
+  });
+  delete process.env.EXA_API_KEY;
+  delete process.env.PARALLEL_API_KEY;
+
+  writeFileSync(envJsonPath, "{");
+  assert.throws(loadCredentials, /not valid JSON/);
+  writeFileSync(envJsonPath, JSON.stringify({ exa: 42 }));
+  assert.throws(loadCredentials, /field "exa" must be a string/);
+  rmSync(envJsonPath);
+  assert.deepStrictEqual(loadCredentials(), {
+    exaApiKey: undefined,
+    parallelApiKey: undefined,
+  });
+  assert.throws(assertProviderAvailable.bind(null, "exa"), /env\.json/);
+} finally {
+  if (previousEnvJson.exists) writeFileSync(envJsonPath, previousEnvJson.text);
+  else rmSync(envJsonPath, { force: true });
+  if (previousExaKey === undefined) delete process.env.EXA_API_KEY;
+  else process.env.EXA_API_KEY = previousExaKey;
+  if (previousParallelKey === undefined) delete process.env.PARALLEL_API_KEY;
+  else process.env.PARALLEL_API_KEY = previousParallelKey;
+}
 
 assert.strictEqual(clampNumResults(undefined), 10);
 assert.strictEqual(clampNumResults(5), 5);

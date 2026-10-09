@@ -1,17 +1,45 @@
+import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { config } from "dotenv";
 
-const extensionDir = dirname(fileURLToPath(import.meta.url));
+const envJsonPath = join(dirname(fileURLToPath(import.meta.url)), "env.json");
 
-// No override: a placeholder line in .env must not blank a real key
-// already exported in the environment (e.g., by pi's own setup).
-config({ path: join(extensionDir, ".env") });
+type EnvConfig = { exa?: string; parallel?: string };
+
+function readEnvConfig(): EnvConfig {
+  let text: string;
+  try {
+    text = readFileSync(envJsonPath, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return {};
+    throw error;
+  }
+
+  let value: unknown;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    throw new Error(`${envJsonPath} is not valid JSON.`);
+  }
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${envJsonPath} must contain a JSON object.`);
+  }
+
+  const config = value as Record<string, unknown>;
+  for (const provider of ["exa", "parallel"] as const) {
+    if (config[provider] !== undefined && typeof config[provider] !== "string") {
+      throw new Error(`${envJsonPath} field "${provider}" must be a string.`);
+    }
+  }
+  return config as EnvConfig;
+}
 
 export function loadCredentials() {
+  const config = readEnvConfig();
   return {
-    exaApiKey: process.env.EXA_API_KEY?.trim() || undefined,
-    parallelApiKey: process.env.PARALLEL_API_KEY?.trim() || undefined,
+    exaApiKey: process.env.EXA_API_KEY?.trim() || config.exa?.trim() || undefined,
+    parallelApiKey:
+      process.env.PARALLEL_API_KEY?.trim() || config.parallel?.trim() || undefined,
   };
 }
 
@@ -23,12 +51,12 @@ export function assertProviderAvailable(
   if (provider === "exa") {
     if (credentials.exaApiKey) return credentials.exaApiKey;
     throw new Error(
-      "EXA_API_KEY is not set. Add it to ~/.pi/agent/extensions/webtools/.env (see .env.example). Get a key at https://dashboard.exa.ai/api-keys",
+      "EXA_API_KEY is not set. Set EXA_API_KEY or add the exa key to ~/.pi/agent/extensions/webtools/env.json. Get a key at https://dashboard.exa.ai/api-keys.",
     );
   }
 
   if (credentials.parallelApiKey) return credentials.parallelApiKey;
   throw new Error(
-    "PARALLEL_API_KEY is not set. Add it to ~/.pi/agent/extensions/webtools/.env (see .env.example). Get a key at https://platform.parallel.ai",
+    "PARALLEL_API_KEY is not set. Set PARALLEL_API_KEY or add the parallel key to ~/.pi/agent/extensions/webtools/env.json. Get a key at https://platform.parallel.ai.",
   );
 }

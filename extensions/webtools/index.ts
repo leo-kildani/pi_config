@@ -87,7 +87,10 @@ async function runWithFallback<TRequest, TResponse extends JsonValue>(options: {
 
       options.onUpdate?.({
         content: [
-          { type: "text", text: "Exa credits exhausted; falling back to Parallel…" },
+          {
+            type: "text",
+            text: "Exa credits exhausted; falling back to Parallel…",
+          },
         ],
         details: {} as TResponse,
       });
@@ -102,7 +105,7 @@ async function runWithFallback<TRequest, TResponse extends JsonValue>(options: {
       }
       if (!parallelKey) {
         throw new Error(
-          "Exa credits are exhausted and the Parallel fallback is not configured (PARALLEL_API_KEY is not set). Top up Exa at https://dashboard.exa.ai or add PARALLEL_API_KEY to ~/.pi/agent/extensions/webtools/.env.",
+          "Exa credits are exhausted and Parallel is not configured. Top up Exa at https://dashboard.exa.ai or add the parallel key to ~/.pi/agent/extensions/webtools/env.json.",
         );
       }
 
@@ -133,30 +136,28 @@ export default function (pi: ExtensionAPI) {
     name: "web_search",
     label: "Web Search",
     description:
-      "Search the web to find facts, recent developments, references, or answers to questions outside your training data. Use this tool when the operator asks to search for something or when you need up-to-date information. Do not use this tool to fetch raw or full-page content.",
-    promptSnippet:
-      "Search the web for answers, recent information, and quick facts",
+      "Search the web for current facts, recent events, references, or answers beyond your training data. Use this tool when the operator asks for a search or you need current information. Do not use it to fetch page content.",
+    promptSnippet: "Search the web for current facts and recent information",
     promptGuidelines: [
-      "Use `web_search` when you lack concrete answers to the operator's prompt, when data may be stale, or when the operator explicitly asks you to search.",
-      "Formulate targeted queries containing specific entities, dates, or concepts.",
-      "Do not attempt or plan to retrieve the full contents of the search result links unless the operator explicitly directs you to fetch those specific URLs.",
-      "Answer directly from the search snippets and metadata provided in the response.",
+      "Use `web_search` when you do not know the answer, your information may be old, or the operator asks for a search.",
+      "Build targeted queries with specific entities, dates, or concepts.",
+      "Do not fetch full result pages unless the operator asks you to fetch those URLs.",
+      "Answer from the result snippets and metadata.",
     ],
     parameters: Type.Object({
       query: Type.String({
         description:
-          "Natural-language search query. Include entities, dates, and the specific fact you need.",
+          "Search query. Include entities, dates, and the fact you need.",
       }),
       numResults: Type.Optional(
         Type.Number({
-          description:
-            "Maximum number of results to return. Defaults to 10, maximum 100.",
+          description: "Maximum results. Default: 10. Maximum: 100.",
         }),
       ),
       recencyDays: Type.Optional(
         Type.Number({
           description:
-            "Prefer pages published within this many days. Omit for no recency filter.",
+            "Prefer pages from this many recent days. Omit to skip the date filter.",
         }),
       ),
       category: Type.Optional(
@@ -171,7 +172,7 @@ export default function (pi: ExtensionAPI) {
           } as const,
           {
             description:
-              "Content type to focus on. company and people do not support recencyDays; the date filter is skipped for them.",
+              "Filter by content type. company and people do not support recencyDays, so web_search skips that filter for them.",
           },
         ),
       ),
@@ -197,9 +198,7 @@ export default function (pi: ExtensionAPI) {
         ...(params.recencyDays !== undefined
           ? { recencyDays: params.recencyDays }
           : {}),
-        ...(params.category !== undefined
-          ? { category: params.category }
-          : {}),
+        ...(params.category !== undefined ? { category: params.category } : {}),
       };
 
       return await runWithFallback<WebSearchRequest, WebSearchResponse>({
@@ -207,7 +206,7 @@ export default function (pi: ExtensionAPI) {
         exa: searchExa,
         parallel: searchParallel,
         format: formatSearchResults,
-        progress: "Searching with Exa…",
+        progress: "Search Exa…",
         signal,
         modelId: ctx.model?.id,
         onUpdate,
@@ -219,13 +218,12 @@ export default function (pi: ExtensionAPI) {
     name: "web_fetch",
     label: "Web Fetch",
     description:
-      "Fetch or summarize the content of specific URLs provided directly by the operator or explicitly requested for retrieval. Do not call this automatically to inspect search results.",
-    promptSnippet:
-      "Read or summarize content from specific URLs provided by the operator",
+      "Fetch or summarize specific URLs that the operator provides or asks you to read. Do not use this tool to inspect search results automatically.",
+    promptSnippet: "Fetch or summarize specific URLs from the operator",
     promptGuidelines: [
-      "Use `web_fetch` ONLY when the operator explicitly provides a URL, points to a specific link to inspect, or directly asks you to read/scrape page contents.",
-      "Never chain `web_fetch` immediately after `web_search` unless the operator explicitly instructed you to fetch or read those specific result pages.",
-      'Set `mode` to `"summary"` and provide an `objective` when the user needs targeted extraction rather than the raw page text.',
+      "Use `web_fetch` only when the operator provides a URL, points to a link, or asks you to read page content.",
+      "Do not call `web_fetch` after `web_search` unless the operator asks you to fetch those result pages.",
+      'Set `mode` to `"summary"` and provide an `objective` for targeted extraction.',
     ],
     parameters: Type.Object({
       urls: Type.Array(Type.String(), {
@@ -237,13 +235,13 @@ export default function (pi: ExtensionAPI) {
         StringEnum(["fetch", "summary"], {
           default: "fetch",
           description:
-            'Fetch mode. "fetch" returns full page text; "summary" returns a condensed synthesis.',
+            'Mode. "fetch" returns page text. "summary" returns a short summary.',
         }),
       ),
       objective: Type.Optional(
         Type.String({
           description:
-            "What to extract or summarize from the pages. Omit for whole-page content.",
+            "Content to extract or summarize. Omit to return the full page.",
         }),
       ),
       maxChars: Type.Optional(
@@ -307,7 +305,7 @@ export default function (pi: ExtensionAPI) {
         exa: fetchExa,
         parallel: fetchParallel,
         format: formatFetchResults,
-        progress: "Fetching with Exa…",
+        progress: "Fetch with Exa…",
         signal,
         modelId: ctx.model?.id,
         onUpdate,
