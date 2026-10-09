@@ -24,8 +24,7 @@ import type {
 } from "./types.js";
 
 const EXA_MAX_RESULTS = 100;
-const SYSTEM_PROMPT =
-  "Prefer official sources and avoid duplicate results.";
+const SYSTEM_PROMPT = "Prefer official sources and avoid duplicate results.";
 
 // Exa-js exposes no per-request timeout or abort signal; a hung endpoint
 // would block the tool call forever. Race every request against this cap
@@ -90,16 +89,16 @@ export async function searchExa(
   // cap is the budget divided across the requested results, so
   // numResults x cap <= MAX_TOTAL_RESULT_CHARS.
   const numResults = clampNumResults(params.numResults, EXA_MAX_RESULTS);
-  const perUrlCap = Math.max(1, Math.floor(MAX_TOTAL_RESULT_CHARS / numResults));
+  const perUrlCap = Math.max(
+    1,
+    Math.floor(MAX_TOTAL_RESULT_CHARS / numResults),
+  );
 
   const searchOptions: RegularSearchOptions = {
     numResults,
     type: "auto",
     systemPrompt: SYSTEM_PROMPT,
     contents: {
-      // ponytail: dynamic highlights need the Exa-Beta
-      // dynamic-highlights-2026-08-28 header, untyped in exa-js@2.19.0.
-      // Add when the SDK supports it.
       highlights: { maxCharacters: perUrlCap },
     },
   };
