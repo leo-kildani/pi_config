@@ -17,6 +17,14 @@ Pi loads two resource sets from the root `package.json`:
 
 The webtools extension needs API keys. Copy `extensions/webtools/.env.example` to `extensions/webtools/.env`. Then set `EXA_API_KEY` and `PARALLEL_API_KEY`.
 
+## Install the external packages
+
+The file `packages.txt` lists the external pi packages. Install each entry:
+
+```bash
+while read -r pkg; do pi install "$pkg"; done < packages.txt
+```
+
 ## Develop
 
 Clone the repository for development:
