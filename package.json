@@ -9,6 +9,7 @@
     "skills": ["./skills"],
     "extensions": [
       "./extensions/autocompact/index.ts",
+      "./extensions/max-bash-guard/index.ts",
       "./extensions/plan/index.ts",
       "./extensions/subagent/index.ts",
       "./extensions/todowrite/index.ts",
