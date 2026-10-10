@@ -34,6 +34,7 @@ import type { AutocompleteItem } from "@earendil-works/pi-tui";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 import {
+	activePlanPath,
 	buildIntentContext,
 	buildInstructions as makeBuildInstructions,
 	editInstructions as makeEditInstructions,
@@ -219,11 +220,18 @@ export default function (pi: ExtensionAPI): void {
 		if (state) pi.appendEntry(STATE_ENTRY, state);
 	};
 
-	/** The recorded plan when its file exists, else the newest plan for the session. */
-	const resolveActivePath = (sessionId: string): string | null =>
-		state && state.sessionId === sessionId && existsSync(state.planPath)
-			? state.planPath
-			: newestForSession(sessionId);
+	/** The active plan. A completed plan is not active. */
+	const resolveActivePath = (sessionId: string): string | null => {
+		const recorded = state && state.sessionId === sessionId ? state : null;
+		return activePlanPath(recorded, sessionId, recorded ? existsSync(recorded.planPath) : false, newestForSession(sessionId));
+	};
+
+	/** Mark the active plan done and clear its transient task. */
+	const finishPlan = (ctx: ExtensionContext): void => {
+		if (state) state = { ...state, phase: "done", activeTask: undefined };
+		persistState();
+		syncWidget(ctx);
+	};
 
 	/** Ask the classifier for the intent. Returns null on a missing model, failure, or timeout. */
 	const classifyIntent = async (ctx: ExtensionContext, request: string, sessionId: string): Promise<IntentKind | null> => {
@@ -403,9 +411,7 @@ export default function (pi: ExtensionAPI): void {
 		if (!state || state.sessionId !== ctx.sessionManager.getSessionId()) return;
 		if (state.phase !== "executing") return;
 		if (!listHasWork(currentTodos(ctx)) && verificationComplete(state)) {
-			state.phase = "done";
-			persistState();
-			syncWidget(ctx);
+			finishPlan(ctx);
 			return;
 		}
 		return {
@@ -458,7 +464,10 @@ export default function (pi: ExtensionAPI): void {
 		if (!todos) return;
 		const active = todos.find((todo) => todo.status === "in_progress");
 		state.activeTask = active?.content ?? active?.title ?? active?.id;
-		if (!listHasWork(todos) && verificationComplete(state)) state.phase = "done";
+		if (!listHasWork(todos) && verificationComplete(state)) {
+			finishPlan(ctx);
+			return;
+		}
 		persistState();
 		syncWidget(ctx);
 	});
@@ -470,9 +479,7 @@ export default function (pi: ExtensionAPI): void {
 		if (state.phase !== "executing") return;
 		if (listHasWork(currentTodos(ctx))) return;
 		if (verificationComplete(state)) {
-			state.phase = "done";
-			persistState();
-			syncWidget(ctx);
+			finishPlan(ctx);
 			return;
 		}
 		if (state.verificationNudged) return;

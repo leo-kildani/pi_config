@@ -11,6 +11,18 @@ export function plansDirectory(agentDir: string): string {
 	return join(agentDir, "plans");
 }
 
+/** The active plan path. A completed plan is not active. */
+export function activePlanPath(
+	recorded: { sessionId: string; planPath: string; phase: string } | null,
+	sessionId: string,
+	fileExists: boolean,
+	newest: string | null,
+): string | null {
+	if (!recorded || recorded.sessionId !== sessionId) return newest;
+	if (recorded.phase === "done") return null;
+	return fileExists ? recorded.planPath : newest;
+}
+
 /** Minimal shape of a recorded tool result used by the verification gate. */
 export interface ToolResultLike {
 	role: string;

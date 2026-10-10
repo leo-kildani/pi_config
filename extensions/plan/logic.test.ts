@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import { plansDirectory } from "./logic.ts";
 import type { ClassifierResult } from "@earendil-works/pi-ai";
 import {
+	activePlanPath,
 	buildIntentContext,
 	buildInstructions,
 	editInstructions,
@@ -320,5 +321,28 @@ describe("hasVerificationEvidence", () => {
 
 	it("rejects a failed listed command", () => {
 		assert.equal(hasVerificationEvidence([tool("bash", "pnpm test", true)], ["pnpm test"]), false);
+	});
+});
+
+describe("activePlanPath", () => {
+	const active = { sessionId: "s1", planPath: "/plans/active-s1.md", phase: "executing" };
+
+	it("returns null when the recorded plan is done", () => {
+		assert.equal(activePlanPath({ ...active, phase: "done" }, "s1", true, "/plans/active-s1.md"), null);
+	});
+
+	it("returns the recorded path when the plan is active and the file exists", () => {
+		assert.equal(activePlanPath(active, "s1", true, "/plans/newer-s1.md"), "/plans/active-s1.md");
+	});
+
+	it("returns the newest path when the recorded file is missing", () => {
+		assert.equal(activePlanPath(active, "s1", false, "/plans/newer-s1.md"), "/plans/newer-s1.md");
+	});
+
+	it("returns the newest path when the record belongs to another session", () => {
+		assert.equal(
+			activePlanPath({ sessionId: "s2", planPath: "/plans/active-s2.md", phase: "planning" }, "s1", true, "/plans/newer-s1.md"),
+			"/plans/newer-s1.md",
+		);
 	});
 });
