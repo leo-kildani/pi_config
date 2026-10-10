@@ -22,8 +22,8 @@
  *
  * While phase is "executing" and work remains, before_agent_start appends a
  * gating directive to the system prompt so the agent stays bound to the plan.
- * When the last todo completes or is cancelled, phase flips to "done" and the
- * gate and widget drop.
+ * When every todo is complete and every listed verification command succeeds,
+ * phase flips to "done" and the gate and widget drop.
  *
  * State lives in a custom session entry, so it is branch-aware and survives
  * session resume. Plans are stored in Pi's configured agent directory.
@@ -35,13 +35,18 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 import {
 	buildIntentContext,
-	fallbackIntent,
-	hasVerificationEvidence,
+	buildInstructions as makeBuildInstructions,
+	editInstructions as makeEditInstructions,
 	isForeignPlanPath,
+	planInstructions as makePlanInstructions,
 	planObjectiveFromText,
 	plansDirectory,
 	readIntent,
+	recordVerificationCommand,
+	resolvePlanIntent,
+	shellCommandFromInput,
 	validatePlan,
+	verificationCommandsFromText,
 	type IntentKind,
 	type IntentState,
 } from "./logic.ts";
@@ -60,7 +65,8 @@ interface PlanState {
 	phase: Phase;
 	widgetVisible: boolean;
 	activeTask?: string;
-	buildStartedAt?: number;
+	requiredVerificationCommands?: string[];
+	verifiedCommands?: string[];
 	verificationNudged?: boolean;
 }
 
@@ -76,9 +82,6 @@ interface TodoDetails {
 }
 
 let state: PlanState | null = null;
-
-/** Live evidence flag: a successful command ran after the last code change. */
-let evidenceRan = false;
 
 /** First free path for <plan-name>-<session-id>.md; collisions get -2, -3, ... */
 function uniquePlanPath(planName: string, sessionId: string): string {
@@ -144,18 +147,10 @@ function currentTodos(ctx: ExtensionContext): TodoItem[] | undefined {
 	return todos;
 }
 
-/** True when a successful command follows the last code change since build start. */
-function verificationEvidenceFromBranch(ctx: ExtensionContext, buildStartedAt: number | undefined): boolean {
-	if (!buildStartedAt) return false;
-	const items: Array<{ role: string; toolName?: string; isError?: boolean }> = [];
-	for (const entry of ctx.sessionManager.getBranch()) {
-		if (entry.type !== "message") continue;
-		if (Date.parse(entry.timestamp) < buildStartedAt) continue;
-		const msg = entry.message;
-		if (msg.role !== "toolResult") continue;
-		items.push({ role: msg.role, toolName: msg.toolName, isError: msg.isError });
-	}
-	return hasVerificationEvidence(items);
+function verificationComplete(plan: PlanState | null): boolean {
+	const expected = plan?.requiredVerificationCommands ?? [];
+	const verified = plan?.verifiedCommands ?? [];
+	return expected.length > 0 && expected.every((command) => verified.includes(command));
 }
 
 /** The gating directive appended to the system prompt while work remains. */
@@ -166,7 +161,7 @@ function gateBlock(planPath: string, activeTask: string | undefined): string {
 		`Active task: ${activeTask ?? "No task is marked in progress. Select the next plan task."}`,
 		"This session is bound to this plan. Read the file before changing code. Work only within its Scope Boundaries and Technical Approach. Do not start unrelated work.",
 		"Do not modify unrelated files or begin follow-up work after the plan tasks finish.",
-		"Before reporting completion, apply the verification-before-completion skill: run the plan's Verification Commands and paste the raw output. The plan stays open until a command has run successfully since the last code change.",
+		"Before reporting completion, apply skill:verification-before-completion. Run every listed Verification Command after the latest change. Inspect the full output and paste it. The plan stays open until every listed command succeeds.",
 	].join("\n");
 }
 
@@ -184,104 +179,10 @@ function synthesizePlanName(title: string): string {
 	return words.length ? words.join("-") : "plan";
 }
 
-const PLAN_STRUCTURE = `# Plan: <brief action title>
-
-### Overview
-1-2 sentences: core objective, technical mechanism, expected outcome.
-
-### Context & Baseline
-- **Current State:** relevant existing code, interfaces, or constraints found during inspection.
-- **Key Invariants:** behaviors or architectural contracts that must stay unbroken.
-
-### Scope Boundaries
-- **In-Scope:** concrete capabilities, behaviors, and files targeted in this run.
-- **Out-of-Scope / Non-Goals:** features deliberately deferred and areas forbidden from modification.
-
-### Affected Files & Components
-- \`path/to/file.ext\` — [MODIFY]: specific functions, types, or imports to alter.
-- \`path/to/new_file.ext\` — [CREATE]: responsibility and exports.
-- \`path/to/deprecated_file.ext\` — [DELETE]: reason for removal.
-
-### Technical Approach & Architecture
-Step-by-step implementation logic: data structures, state transitions, API changes, integration points. Add a mermaid diagram only when the data flow is non-trivial.
-
-### Interfaces & Dependencies
-- **Interfaces:** inputs, outputs, events, and compatibility contracts that change or must remain stable.
-- **Dependencies:** packages, modules, services, and integration points required by the implementation.
-
-### Verification & Acceptance Criteria
-- **Acceptance Criteria:** observable behaviors that must hold.
-- **Verification Commands:** exact commands to run, for example \`pytest tests/test_feature.py -k test_name\` or \`cargo check\`.
-
-### Global Constraints
-- Preserve existing naming, resolution order, command semantics, and user-visible behavior unless this plan explicitly changes them.
-- Keep all changes within the Scope Boundaries. Do not add speculative abstractions.
-
-### Execution Todos
-Ordered, trackable milestones. Each item must be a discrete, verifiable state:
-- [ ] Task 1: <setup / interface scaffolding>
-- [ ] Task 2: <core business logic>
-- [ ] Task 3: <integration and glue code>
-- [ ] Task 4: <run the exact verification commands and check acceptance criteria>
-
-The final task must run verification commands and confirm acceptance criteria. Keep 3-8 tasks. Each task must be small enough to finish in one agent turn.`;
-
-function planInstructions(planPath: string, objective: string): string {
-	return `You are in PLAN MODE. Create an execution plan for: ${objective}
-
-The plan file is: ${planPath}
-
-Write the plan into that exact path with the write tool. The write tool creates parent directories. This path is final; the extension never renames the file. To update the plan later, edit this same path.
-
-The plan must start with an H1 title on the first line, in the form "# Plan: <title>", where <title> is a concise 3-4 word summary of the plan (for example "# Plan: Add Click Burst Feature"). The title is display text only; the file name comes from the objective.
-
-Operational rules:
-1. Read before writing. Inspect the relevant architecture, imports, and utilities. Reuse existing patterns; do not reinvent utilities.
-2. Commit to one solution. Never present open-ended alternatives (no "Option A vs B", no "TBD"). Make the technical choice and justify it in one sentence.
-3. Guard against over-engineering. Implement only what the task requires. No speculative abstractions or unused helpers.
-4. No markdown tables. Use lists, code blocks, or bold key-value pairs.
-5. Delegate research. For codebase recon or external facts, spawn the explorer or surface-researcher subagent and use its condensed report. Do not bloat your context.
-6. Ask one targeted question only when a fact changes the plan's shape. Decide everything else.
-
-Write the file with exactly this structure:
-
-${PLAN_STRUCTURE}
-
-Do NOT touch write-todos. /plan build loads the Execution Todos later.`;
-}
-
 /** First H1 title text, preferring the "# Plan: <title>" form. */
 function planTitleFromText(text: string): string | null {
 	const match = /^#[ \t]+Plan:[ \t]*(.+)$/m.exec(text) ?? /^#[ \t]+(.+)$/m.exec(text);
 	return match?.[1]?.trim() || null;
-}
-
-function editInstructions(planPath: string, request: string): string {
-	return `You are in PLAN-EDIT MODE. Update the existing plan for this request: ${request}
-
-The plan file is: ${planPath}
-
-Rules:
-1. Read the file fully before changing it.
-2. Change it in place with the edit tool. Do not create a new file and do not rename it.
-3. Keep the H1 title and every required section. Update only what the request needs.
-4. Keep the file valid: non-empty required sections, exact file paths in backticks, Verification Commands present, and checkbox tasks in the Execution Todos.
-5. Do not touch write-todos.
-
-When done, report the plan path and a one-line summary of what changed.`;
-}
-
-function buildInstructions(planPath: string): string {
-	return `You are in PLAN-BUILD MODE. Implement the active plan:
-
-${planPath}
-
-1. Read the plan file fully before changing any code.
-2. Parse its Execution Todos. In ONE write-todos call, load them: ids todo-1..todo-N, status pending. write-todos replaces the entire list, so every previous todo is wiped.
-3. Implement the tasks in order. Keep exactly one todo in_progress at a time.
-4. Follow Scope Boundaries strictly. Never modify out-of-scope files. Follow Technical Approach; run the Verification Commands.
-5. As each task lands, call write-todos with the FULL current list, marking that task completed. A partial list removes the todos you omit.
-6. When every todo is completed or cancelled, stop. Report what changed, the verification results, and the plan path. Do not continue into new work.`;
 }
 
 /** Rebuild state from the session branch's plan-state custom entry. */
@@ -310,6 +211,8 @@ function syncWidget(ctx: ExtensionContext): void {
 }
 
 export default function (pi: ExtensionAPI): void {
+	const shellCommandByCallId = new Map<string, string | null>();
+
 	// Marker entry carrying {sessionId, planPath, phase, widgetVisible}; set by
 	// the command and the event handlers.
 	const persistState = (): void => {
@@ -368,7 +271,7 @@ export default function (pi: ExtensionAPI): void {
 		persistState();
 		syncWidget(ctx);
 		ctx.ui.notify(`Plan target: ${planPath}`, "info");
-		pi.sendUserMessage(planInstructions(planPath, objective));
+		pi.sendUserMessage(makePlanInstructions(planPath, objective));
 	};
 
 	/** Change the active plan in place. */
@@ -382,7 +285,7 @@ export default function (pi: ExtensionAPI): void {
 		persistState();
 		syncWidget(ctx);
 		ctx.ui.notify(`Editing plan: ${planPath}`, "info");
-		pi.sendUserMessage(editInstructions(planPath, request));
+		pi.sendUserMessage(makeEditInstructions(planPath, request));
 	};
 
 	/** Execute the active plan. */
@@ -392,12 +295,26 @@ export default function (pi: ExtensionAPI): void {
 			ctx.ui.notify("No plan found. Run /plan <objective> first.", "error");
 			return;
 		}
-		evidenceRan = false;
-		state = { sessionId, planPath, phase: "executing", widgetVisible: state?.widgetVisible ?? true, activeTask: undefined, buildStartedAt: Date.now(), verificationNudged: false };
+		let requiredVerificationCommands: string[] = [];
+		try {
+			requiredVerificationCommands = verificationCommandsFromText(readFileSync(planPath, "utf8"));
+		} catch {
+			// The verification gate remains closed when the plan cannot be read.
+		}
+		state = {
+			sessionId,
+			planPath,
+			phase: "executing",
+			widgetVisible: state?.widgetVisible ?? true,
+			activeTask: undefined,
+			requiredVerificationCommands,
+			verifiedCommands: [],
+			verificationNudged: false,
+		};
 		persistState();
 		syncWidget(ctx);
 		ctx.ui.notify(`Building: ${planPath}`, "info");
-		pi.sendUserMessage(buildInstructions(planPath));
+		pi.sendUserMessage(makeBuildInstructions(planPath));
 	};
 
 	pi.registerCommand("plan", {
@@ -466,8 +383,11 @@ export default function (pi: ExtensionAPI): void {
 				return;
 			}
 
-			const intent = (await classifyIntent(ctx, request, sessionId))
-				?? fallbackIntent({ hasActivePlan: resolveActivePath(sessionId) !== null });
+			const hasActivePlan = resolveActivePath(sessionId) !== null;
+			const intent = resolvePlanIntent(
+				{ request, hasActivePlan },
+				await classifyIntent(ctx, request, sessionId),
+			);
 			if (intent === "build") {
 				buildPlan(ctx, sessionId);
 			} else if (intent === "edit") {
@@ -482,7 +402,7 @@ export default function (pi: ExtensionAPI): void {
 	pi.on("before_agent_start", async (event, ctx) => {
 		if (!state || state.sessionId !== ctx.sessionManager.getSessionId()) return;
 		if (state.phase !== "executing") return;
-		if (!listHasWork(currentTodos(ctx)) && evidenceRan) {
+		if (!listHasWork(currentTodos(ctx)) && verificationComplete(state)) {
 			state.phase = "done";
 			persistState();
 			syncWidget(ctx);
@@ -497,6 +417,10 @@ export default function (pi: ExtensionAPI): void {
 	pi.on("tool_call", async (event, ctx) => {
 		if (!state || state.sessionId !== ctx.sessionManager.getSessionId()) return;
 		if (state.phase === "done") return;
+		if (event.toolName === "bash" || event.toolName === "powershell") {
+			if (state.phase === "executing") shellCommandByCallId.set(event.toolCallId, shellCommandFromInput(event.input));
+			return;
+		}
 		if (event.toolName !== "write" && event.toolName !== "edit") return;
 		const target = (event.input as { path?: unknown }).path;
 		if (typeof target !== "string") return;
@@ -504,17 +428,28 @@ export default function (pi: ExtensionAPI): void {
 		return { block: true, reason: `Active plan is ${state.planPath}. Edit that file. Do not create another plan file.` };
 	});
 
-	// Evidence + completion: track commands after edits, and flip to "done"
-	// only when every todo is finished and a command ran since the last change.
+	// Verification + completion: record exact listed commands after edits, and
+	// flip to "done" only when every todo and every verification command is complete.
 	pi.on("tool_execution_end", async (event, ctx) => {
 		if (!state || state.sessionId !== ctx.sessionManager.getSessionId()) return;
 		if (state.phase !== "executing") return;
 		if (event.toolName === "edit" || event.toolName === "write") {
-			if (!event.isError) evidenceRan = false;
+			if (!event.isError) {
+				state.verifiedCommands = [];
+				persistState();
+			}
 			return;
 		}
 		if (event.toolName === "bash" || event.toolName === "powershell") {
-			if (!event.isError) evidenceRan = true;
+			const command = shellCommandByCallId.get(event.toolCallId) ?? null;
+			shellCommandByCallId.delete(event.toolCallId);
+			state.verifiedCommands = recordVerificationCommand(
+				state.verifiedCommands ?? [],
+				command,
+				state.requiredVerificationCommands ?? [],
+				Boolean(event.isError),
+			);
+			persistState();
 			return;
 		}
 		if (event.toolName !== "write-todos") return;
@@ -523,18 +458,18 @@ export default function (pi: ExtensionAPI): void {
 		if (!todos) return;
 		const active = todos.find((todo) => todo.status === "in_progress");
 		state.activeTask = active?.content ?? active?.title ?? active?.id;
-		if (!listHasWork(todos) && evidenceRan) state.phase = "done";
+		if (!listHasWork(todos) && verificationComplete(state)) state.phase = "done";
 		persistState();
 		syncWidget(ctx);
 	});
 
-	// Verification nudge: when every todo is done but no command has run since
-	// the last code change, force exactly one more turn to verify.
+	// Verification nudge: when every todo is done but listed verification is
+	// incomplete, force one more turn to run and inspect the commands.
 	pi.on("agent_before_settle", async (_event, ctx) => {
 		if (!state || state.sessionId !== ctx.sessionManager.getSessionId()) return;
 		if (state.phase !== "executing") return;
 		if (listHasWork(currentTodos(ctx))) return;
-		if (evidenceRan) {
+		if (verificationComplete(state)) {
 			state.phase = "done";
 			persistState();
 			syncWidget(ctx);
@@ -550,7 +485,7 @@ export default function (pi: ExtensionAPI): void {
 				type: "custom_message",
 				customType: "plan-verify-required",
 				display: true,
-				content: "All plan tasks are complete, but no command has run successfully since the last code change. Apply the verification-before-completion skill now: run the plan's Verification Commands and paste the raw output. Then stop.",
+				content: "All plan tasks are complete, but one or more listed Verification Commands have not succeeded since the latest change. Apply skill:verification-before-completion. Run every listed command, inspect the full output, paste it, then stop.",
 			}],
 		};
 	});
@@ -558,7 +493,6 @@ export default function (pi: ExtensionAPI): void {
 	// Rebuild state on load, switch, and tree navigate.
 	const rebuild = (_event: unknown, ctx: ExtensionContext): void => {
 		reconstructState(ctx);
-		evidenceRan = verificationEvidenceFromBranch(ctx, state?.buildStartedAt);
 		syncWidget(ctx);
 	};
 	pi.on("session_start", rebuild);
