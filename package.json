@@ -11,7 +11,6 @@
       "./extensions/autocompact/index.ts",
       "./extensions/max-bash-guard/index.ts",
       "./extensions/plan/index.ts",
-      "./extensions/subagent/index.ts",
       "./extensions/todowrite/index.ts",
       "./extensions/webtools/index.ts"
     ]

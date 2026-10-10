@@ -13,7 +13,9 @@ pi install git:github.com/leo-kildani/pi_config
 Pi loads two resource sets from the root `package.json`:
 
 - `skills/` — reusable skill instructions.
-- `extensions/` — autocompact, plan, subagent, todowrite, and webtools.
+- `extensions/` — autocompact, plan, todowrite, and webtools.
+
+The file `packages.txt` lists external packages, including the `@tintinweb/pi-subagents` extension.
 
 The webtools extension needs API keys. Copy `extensions/webtools/env.json.example` to `extensions/webtools/env.json`. Set the `exa` and `parallel` keys in that file. You can also set `EXA_API_KEY` and `PARALLEL_API_KEY` in the process environment.
 
