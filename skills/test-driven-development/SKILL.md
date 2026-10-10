@@ -108,9 +108,7 @@ Confirm:
 
 ### GREEN - Minimal Code
 
-**Required (once per task)**: Read [writing-good-code.md](references/writing-good-code.md) before writing code.
-
-Write the simplest code that passes the test.
+Use `skill:ponytail` when writing code. Write the simplest code that passes the test.
 
 **Good Example**:
 ```
@@ -154,7 +152,7 @@ Confirm:
 
 ### REFACTOR - Clean Up
 
-Read [writing-good-code.md](references/writing-good-code.md) only if you have not read it for the current task.
+Use `skill:ponytail` while refactoring.
 
 After green only:
 - Remove duplication
@@ -166,6 +164,8 @@ Do not force a refactor. If code is already clean, move on.
 **Keep tests green. Don't add behavior.**
 
 **If the refactor breaks a test,** Fix it. Re-run the tests until they pass.
+
+At the end of refactoring, use `skill:ponytail-debt` to harvest any `shortcut:` comments left in the code and report the debt.
 
 ### Repeat
 
@@ -211,7 +211,8 @@ Before you mark the work complete:
 - [ ] You classified the change as a feature, bugfix, or a refactor.
 - [ ] You followed the RED-GREEN-REFACTOR cycle correctly, in order for each task.
 - [ ] You wrote your tests with [writing-good-tests.md](references/writing-good-tests.md).
-- [ ] You wrote your code with [writing-good-code.md](references/writing-good-code.md).
+- [ ] You used `skill:ponytail` when writing and refactoring code.
+- [ ] You used `skill:ponytail-debt` after refactoring to harvest any `shortcut:` comments.
 - [ ] All tests pass.
 - [ ] The output is clean. No errors and no warnings.
 - [ ] The tests cover all edge cases and errors for their task only.

@@ -15,7 +15,7 @@
 ## Usage Scope
 
 **Load this reference when:** you write or change tests, add mocks, or add cleanup or helper methods for tests.
-**Do NOT load when:** you write production implementation code. For production code, read [writing-good-code.md](writing-good-code.md).
+**Do NOT load when:** you write production implementation code. Use `skill:ponytail` for production code.
 
 ## Overview
 
