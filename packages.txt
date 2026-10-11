@@ -2,4 +2,3 @@ npm:@juicesharp/rpiv-ask-user-question
 npm:@sting8k/pi-vcc
 npm:@ff-labs/pi-fff
 npm:@dietrichgebert/ponytail
-npm:@tintinweb/pi-subagents:src
