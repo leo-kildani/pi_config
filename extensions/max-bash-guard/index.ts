@@ -45,8 +45,7 @@ export default function (pi: ExtensionAPI) {
 	let mode: GuardMode = DEFAULT_CONFIG.mode;
 
 	function updateStatus(ctx: ExtensionContext): void {
-		const text = mode === "free" ? "guard off" : mode === "trial" ? "guard trial" : "guard jail";
-		ctx.ui.setStatus(STATUS_KEY, ctx.ui.theme.fg(mode === "free" ? "dim" : "success", text));
+		ctx.ui.setStatus(STATUS_KEY, ctx.ui.theme.fg(mode === "free" ? "dim" : "success", `🛡: ${mode}`));
 	}
 
 	function persistState(): void {
@@ -98,6 +97,11 @@ export default function (pi: ExtensionAPI) {
 
 	pi.registerCommand("maxguard", {
 		description: "Set the bash guard mode: free, trial, or jail",
+		getArgumentCompletions: (prefix) => {
+			const normalizedPrefix = prefix.trim().toLowerCase();
+			const matches = ["free", "trial", "jail"].filter((value) => value.startsWith(normalizedPrefix));
+			return matches.length ? matches.map((value) => ({ value, label: value })) : null;
+		},
 		handler: async (args, ctx) => {
 			const value = args.trim().toLowerCase();
 			if (!value) {
