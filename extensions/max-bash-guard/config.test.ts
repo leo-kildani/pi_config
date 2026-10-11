@@ -10,15 +10,17 @@ import assert from "node:assert/strict";
 import { DEFAULT_CONFIG, parseGuardMode } from "./config.ts";
 
 describe("parseGuardMode", () => {
-	it("accepts the three guard modes", () => {
+	it("accepts all four guard modes", () => {
 		assert.equal(parseGuardMode("free", "jail"), "free");
 		assert.equal(parseGuardMode("trial", "free"), "trial");
 		assert.equal(parseGuardMode("jail", "free"), "jail");
+		assert.equal(parseGuardMode("read-only", "free"), "read-only");
 	});
 
 	it("trims and lowercases the value", () => {
 		assert.equal(parseGuardMode("  JAIL ", "free"), "jail");
 		assert.equal(parseGuardMode("Trial", "free"), "trial");
+		assert.equal(parseGuardMode("  READ-ONLY ", "free"), "read-only");
 	});
 
 	it("falls back when the value is undefined", () => {
@@ -31,6 +33,10 @@ describe("parseGuardMode", () => {
 });
 
 describe("DEFAULT_CONFIG", () => {
+	it("defaults to read-only mode", () => {
+		assert.equal(DEFAULT_CONFIG.mode, "read-only");
+	});
+
 	it("runs three checkers and needs two safe votes", () => {
 		assert.equal(DEFAULT_CONFIG.checkerCount, 3);
 		assert.equal(DEFAULT_CONFIG.minSafeVotes, 2);

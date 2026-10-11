@@ -29,6 +29,7 @@ import { DEFAULT_CONFIG, parseGuardMode, type GuardMode } from "./config.ts";
 import { afterDeterministic, afterVotes } from "./decide.ts";
 import { evaluateCommandPolicy } from "./policy.ts";
 import { promptForDecision } from "./ui.ts";
+import { evaluateReadOnlyCommand } from "./read-only.ts";
 
 const STATE_ENTRY = "max-bash-guard-state";
 const STATUS_KEY = "max-bash-guard";
@@ -72,6 +73,12 @@ export default function (pi: ExtensionAPI) {
 
 	async function guardCommand(ctx: ExtensionContext, command: string): Promise<GuardDecision> {
 		if (mode === "free") return { allowed: true };
+		if (mode === "read-only") {
+			const decision = evaluateReadOnlyCommand(command);
+			return decision.action === "allow"
+				? { allowed: true }
+				: { allowed: false, reason: `${TITLE}: ${decision.reason}. Blocked in read-only mode.` };
+		}
 
 		const policy = evaluateCommandPolicy(command, ctx.cwd, { profile: DEFAULT_CONFIG.policyProfile });
 		const step = afterDeterministic(mode, policy.action);
@@ -90,16 +97,16 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	pi.registerFlag("max-guard-mode", {
-		description: "Bash guard mode: free, trial, or jail",
+		description: "Bash guard mode: read-only, free, trial, or jail",
 		type: "string",
 		default: DEFAULT_CONFIG.mode,
 	});
 
 	pi.registerCommand("maxguard", {
-		description: "Set the bash guard mode: free, trial, or jail",
+		description: "Set the bash guard mode: read-only, free, trial, or jail",
 		getArgumentCompletions: (prefix) => {
 			const normalizedPrefix = prefix.trim().toLowerCase();
-			const matches = ["free", "trial", "jail"].filter((value) => value.startsWith(normalizedPrefix));
+			const matches = ["free", "trial", "jail", "read-only"].filter((value) => value.startsWith(normalizedPrefix));
 			return matches.length ? matches.map((value) => ({ value, label: value })) : null;
 		},
 		handler: async (args, ctx) => {
@@ -108,8 +115,8 @@ export default function (pi: ExtensionAPI) {
 				ctx.ui.notify(`Bash guard mode: ${mode}`, "info");
 				return;
 			}
-			if (value !== "free" && value !== "trial" && value !== "jail") {
-				ctx.ui.notify("Usage: /maxguard free|trial|jail", "warning");
+			if (value !== "free" && value !== "trial" && value !== "jail" && value !== "read-only") {
+				ctx.ui.notify("Usage: /maxguard read-only|free|trial|jail", "warning");
 				return;
 			}
 			mode = value;
