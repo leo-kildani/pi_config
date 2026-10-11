@@ -1,7 +1,7 @@
 import assert from "node:assert";
 import { readFileSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { assertProviderAvailable, loadCredentials } from "./credentials.ts";
 import {
   ExaCreditsExhaustedError,
@@ -23,8 +23,7 @@ import type {
 } from "./types.ts";
 
 // A local JSON file supplies credentials when process variables are absent.
-const webtoolsDir = dirname(fileURLToPath(import.meta.url));
-const envJsonPath = join(webtoolsDir, "env.json");
+const envJsonPath = join(homedir(), ".pi", "agent", "webtools-env.json");
 const previousEnvJson = (() => {
   try {
     return { exists: true, text: readFileSync(envJsonPath, "utf8") };

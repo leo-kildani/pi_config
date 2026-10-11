@@ -21,7 +21,7 @@ The root `package.json` defines these scripts. It does not define a formatter, l
 - Keep webtools tests in `extensions/webtools/` beside the code they test.
 - Name tests with the `.test.ts` suffix.
 - Do not make network requests in credential tests.
-- Restore `env.json` and process environment variables after tests that change them.
+- Restore `~/.pi/agent/webtools-env.json` and process environment variables after tests that change them.
 - Run the focused test, `pnpm typecheck`, `pnpm test`, and `pnpm check:webtools` after code changes.
 
 ## Code Style
@@ -29,7 +29,7 @@ The root `package.json` defines these scripts. It does not define a formatter, l
 - Use TypeScript with ESM.
 - Import runtime modules with the `.ts` extension in new code.
 - Use the existing `ctx.ui` dialogs for provider selection and key input.
-- Keep `process.env` values ahead of `env.json` values in credential lookup.
+- Keep `process.env` values ahead of `~/.pi/agent/webtools-env.json` values in credential lookup.
 
 ```ts
 // ✅ Save the trimmed key without showing it.
@@ -54,13 +54,13 @@ ctx.ui.notify(trimmedKey);
 ## Project Structure
 
 - `index.ts` registers the webtools tools and slash command.
-- `credentials.ts` reads credentials and writes provider keys to `env.json`.
+- `credentials.ts` reads credentials and writes provider keys to `~/.pi/agent/webtools-env.json`.
 - `exa.ts` and `parallel.ts` call the provider APIs.
 - `types.ts` contains shared request, response, and formatting logic.
 - `check.ts` runs the webtools behavior check without network access.
 - `env.json.example` shows the supported provider fields.
-- `.gitignore` excludes `env.json` and `node_modules/`.
+- `.gitignore` excludes `node_modules/`.
 
 ## Notes
 
-The `env.json` file contains secrets. Keep it local. Environment variables override values in that file.
+The `~/.pi/agent/webtools-env.json` file contains secrets. Keep it local. Environment variables override values in that file.

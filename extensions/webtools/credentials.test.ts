@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { readFileSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { after, test } from "node:test";
 import { loadCredentials, setProviderApiKey } from "./credentials.ts";
 
-const envJsonPath = join(dirname(fileURLToPath(import.meta.url)), "env.json");
+const envJsonPath = join(homedir(), ".pi", "agent", "webtools-env.json");
 const originalEnvJson = (() => {
   try {
     return readFileSync(envJsonPath, "utf8");

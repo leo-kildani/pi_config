@@ -105,7 +105,7 @@ async function runWithFallback<TRequest, TResponse extends JsonValue>(options: {
       }
       if (!parallelKey) {
         throw new Error(
-          "Exa credits are exhausted and Parallel is not configured. Top up Exa at https://dashboard.exa.ai or add the parallel key to ~/.pi/agent/extensions/webtools/env.json.",
+          "Exa credits are exhausted and Parallel is not configured. Top up Exa at https://dashboard.exa.ai or add the parallel key to ~/.pi/agent/webtools-env.json.",
         );
       }
 
@@ -315,13 +315,9 @@ export default function (pi: ExtensionAPI) {
 
   pi.registerCommand("webtools", {
     description: "Configure an Exa or Parallel API key",
-    getArgumentCompletions: (prefix) =>
-      "config".startsWith(prefix.trim().toLowerCase())
-        ? [{ value: "config", label: "config" }]
-        : null,
     handler: async (args, ctx) => {
-      if (args.trim() !== "config") {
-        ctx.ui.notify("Usage: /webtools config", "warning");
+      if (args.trim() !== "") {
+        ctx.ui.notify("Usage: /webtools", "warning");
         return;
       }
       if (!ctx.hasUI) {
@@ -348,7 +344,7 @@ export default function (pi: ExtensionAPI) {
 
       try {
         setProviderApiKey(provider, trimmedKey);
-        ctx.ui.notify(`Saved ${providerName} API key to env.json.`, "info");
+        ctx.ui.notify(`Saved ${providerName} API key to ~/.pi/agent/webtools-env.json.`, "info");
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         ctx.ui.notify(`Could not save API key: ${message}`, "error");

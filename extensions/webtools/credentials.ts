@@ -1,8 +1,8 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 
-const envJsonPath = join(dirname(fileURLToPath(import.meta.url)), "env.json");
+const envJsonPath = join(homedir(), ".pi", "agent", "webtools-env.json");
 
 type EnvConfig = { exa?: string; parallel?: string };
 
@@ -40,6 +40,7 @@ export function setProviderApiKey(
 ): void {
   const config = readEnvConfig();
   config[provider] = apiKey;
+  mkdirSync(dirname(envJsonPath), { recursive: true });
   writeFileSync(envJsonPath, `${JSON.stringify(config, null, 2)}\n`);
 }
 
@@ -60,12 +61,12 @@ export function assertProviderAvailable(
   if (provider === "exa") {
     if (credentials.exaApiKey) return credentials.exaApiKey;
     throw new Error(
-      "EXA_API_KEY is not set. Set EXA_API_KEY or add the exa key to ~/.pi/agent/extensions/webtools/env.json. Get a key at https://dashboard.exa.ai/api-keys.",
+      "EXA_API_KEY is not set. Set EXA_API_KEY or add the exa key to ~/.pi/agent/webtools-env.json. Get a key at https://dashboard.exa.ai/api-keys.",
     );
   }
 
   if (credentials.parallelApiKey) return credentials.parallelApiKey;
   throw new Error(
-    "PARALLEL_API_KEY is not set. Set PARALLEL_API_KEY or add the parallel key to ~/.pi/agent/extensions/webtools/env.json. Get a key at https://platform.parallel.ai.",
+    "PARALLEL_API_KEY is not set. Set PARALLEL_API_KEY or add the parallel key to ~/.pi/agent/webtools-env.json. Get a key at https://platform.parallel.ai.",
   );
 }
