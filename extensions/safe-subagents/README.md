@@ -9,6 +9,7 @@ its own prompt to a subprocess.
 ## Features
 
 - **Isolated context**: Each subagent runs in a separate `pi` process
+- **Skill isolation**: A subagent loads only the skills its definition names, and no others
 - **Streaming output**: See tool calls and progress as they happen
 - **Parallel streaming**: All parallel tasks stream updates simultaneously
 - **Markdown rendering**: Final output rendered with proper formatting (expanded view)
@@ -77,6 +78,8 @@ This tool executes a separate `pi` subprocess with a delegated system prompt and
 **Project-local agents** (`.pi/agents/*.md`) are repo-controlled prompts that can instruct the model to read files, run bash commands, etc.
 
 **Default behavior:** Only loads **user-level agents** from `~/.pi/agent/agents`.
+
+The child process starts with `--no-skills` and then receives one `--skill` path per name in the agent's `skills` field. Skills are resolved by name against the parent session, so a subagent can load any skill the parent can see, including skills from installed packages. An agent without the field loads no skills.
 
 To enable project-local agents, pass `agentScope: "both"` (or `"project"`). Only do this for repositories you trust.
 
@@ -149,6 +152,7 @@ Agents are markdown files with YAML frontmatter:
 name: my-agent
 description: What this agent does
 tools: read, grep, find, ls
+skills: ponytail, writing-in-ste
 model: claude-haiku-4-5
 ---
 
@@ -156,6 +160,8 @@ System prompt for the agent goes here.
 ```
 
 When `model` is omitted, the subagent inherits the dispatching session's active model and thinking level.
+
+`skills` takes a comma separated list or a YAML array. Use the `name` field of the skill's frontmatter, not a path.
 
 **Locations:**
 - `~/.pi/agent/agents/*.md` - User-level (always loaded)
@@ -172,6 +178,8 @@ Project agents override user agents with the same name when `agentScope: "both"`
 | `reviewer` | Code review | Sonnet | read, grep, find, ls, bash |
 | `worker` | General-purpose | Sonnet | (all default) |
 
+No sample agent declares `skills`, so each of them runs without skills.
+
 ## Workflow Prompts
 
 | Prompt | Flow |
@@ -186,6 +194,7 @@ Project agents override user agents with the same name when `agentScope: "both"`
 - **stopReason "error"**: LLM error propagated with error message
 - **stopReason "aborted"**: User abort (Ctrl+C) kills subprocess, throws error
 - **Chain mode**: Stops at first failing step, reports which step failed
+- **Unknown skill**: The task fails before the subprocess starts and lists the available skill names
 
 ## Limitations
 

@@ -24,11 +24,12 @@ import {
 	type ExtensionAPI,
 	getAgentDir,
 	getMarkdownTheme,
+	type SlashCommandInfo,
 	withFileMutationQueue,
 } from "@earendil-works/pi-coding-agent";
 import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
-import { type AgentConfig, type AgentScope, discoverAgents } from "./agents.ts";
+import { type AgentConfig, type AgentScope, discoverAgents, listSkillNames, resolveSkillPaths } from "./agents.ts";
 
 const MAX_PARALLEL_TASKS = 8;
 const MAX_CONCURRENCY = 4;
@@ -273,6 +274,7 @@ async function runSingleAgent(
 	defaultCwd: string,
 	dispatchDefaults: DispatchDefaults,
 	agents: AgentConfig[],
+	commands: SlashCommandInfo[],
 	agentName: string,
 	task: string,
 	cwd: string | undefined,
@@ -297,6 +299,21 @@ async function runSingleAgent(
 		};
 	}
 
+	const { paths: skillPaths, unknown } = resolveSkillPaths(agent.skills, commands);
+	if (unknown.length > 0) {
+		const available = listSkillNames(commands).join(", ") || "none";
+		return {
+			agent: agentName,
+			agentSource: agent.source,
+			task,
+			exitCode: 1,
+			messages: [],
+			stderr: `Unknown skill(s) for agent "${agentName}": ${unknown.join(", ")}. Available skills: ${available}.`,
+			usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 },
+			step,
+		};
+	}
+
 	const args: string[] = ["--mode", "json", "-p", "--no-session"];
 	const inheritsDispatchConfig = !agent.model;
 	const model = agent.model ?? dispatchDefaults.model;
@@ -305,6 +322,10 @@ async function runSingleAgent(
 		args.push("--thinking", dispatchDefaults.thinkingLevel);
 	}
 	if (agent.tools && agent.tools.length > 0) args.push("--tools", agent.tools.join(","));
+
+	// Isolation: the child discovers no skills of its own, only the declared ones.
+	args.push("--no-skills");
+	for (const skillPath of skillPaths) args.push("--skill", skillPath);
 
 	let tmpPromptDir: string | null = null;
 	let tmpPromptPath: string | null = null;
@@ -488,6 +509,7 @@ export default function (pi: ExtensionAPI) {
 			};
 			const discovery = discoverAgents(ctx.cwd, agentScope);
 			const agents = discovery.agents;
+			const commands = pi.getCommands();
 			const confirmProjectAgents = params.confirmProjectAgents ?? true;
 
 			const hasChain = (params.chain?.length ?? 0) > 0;
@@ -574,6 +596,7 @@ export default function (pi: ExtensionAPI) {
 						ctx.cwd,
 						dispatchDefaults,
 						agents,
+						commands,
 						step.agent,
 						taskWithContext,
 						step.cwd,
@@ -647,6 +670,7 @@ export default function (pi: ExtensionAPI) {
 						ctx.cwd,
 						dispatchDefaults,
 						agents,
+						commands,
 						t.agent,
 						t.task,
 						t.cwd,
@@ -690,6 +714,7 @@ export default function (pi: ExtensionAPI) {
 					ctx.cwd,
 					dispatchDefaults,
 					agents,
+					commands,
 					params.agent,
 					params.task,
 					params.cwd,

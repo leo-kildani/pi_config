@@ -4,7 +4,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { CONFIG_DIR_NAME, getAgentDir, parseFrontmatter } from "@earendil-works/pi-coding-agent";
+import { CONFIG_DIR_NAME, getAgentDir, parseFrontmatter, type SlashCommandInfo } from "@earendil-works/pi-coding-agent";
 
 export type AgentScope = "user" | "project" | "both";
 
@@ -12,6 +12,8 @@ export interface AgentConfig {
 	name: string;
 	description: string;
 	tools?: string[];
+	/** Skills this agent may load. Empty means it loads none. */
+	skills: string[];
 	model?: string;
 	systemPrompt: string;
 	source: "user" | "project";
@@ -35,28 +37,28 @@ type AgentFrontmatter = {
 	name?: unknown;
 	description?: unknown;
 	tools?: unknown;
+	skills?: unknown;
 	model?: unknown;
 };
 
 /**
- * Normalize a frontmatter `tools` value to a list of tool names.
+ * Normalize a frontmatter `tools` or `skills` value to a list of names.
  *
  * Both spellings are valid YAML and both are in use:
  *
- *     tools: read, bash        # string
- *     tools: [read, bash]      # array
+ *     skills: ponytail, writing-in-ste   # string
+ *     skills: [ponytail]                 # array
  *
  * so accept either. Anything else (a number, a map, a nested list) yields no
- * tools rather than throwing: this runs inside agent discovery, where a single
+ * names rather than throwing: this runs inside agent discovery, where a single
  * bad file must not take down every other agent in the same directory.
  */
-function parseToolList(value: unknown): string[] | undefined {
+function parseNameList(value: unknown): string[] {
 	const raw = Array.isArray(value) ? value : typeof value === "string" ? value.split(",") : [];
-	const tools = raw
+	return raw
 		.filter((t): t is string => typeof t === "string")
 		.map((t) => t.trim())
 		.filter(Boolean);
-	return tools.length > 0 ? tools : undefined;
 }
 
 function loadAgentsFromDir(dir: string, source: "user" | "project"): AgentConfig[] {
@@ -91,10 +93,13 @@ function loadAgentsFromDir(dir: string, source: "user" | "project"): AgentConfig
 			continue;
 		}
 
+		const tools = parseNameList(frontmatter.tools);
+
 		agents.push({
 			name: frontmatter.name,
 			description: frontmatter.description,
-			tools: parseToolList(frontmatter.tools),
+			tools: tools.length > 0 ? tools : undefined,
+			skills: parseNameList(frontmatter.skills),
 			model: typeof frontmatter.model === "string" ? frontmatter.model : undefined,
 			systemPrompt: body,
 			source,
@@ -154,4 +159,41 @@ export function formatAgentList(agents: AgentConfig[], maxItems: number): { text
 		text: listed.map((a) => `${a.name} (${a.source}): ${a.description}`).join("; "),
 		remaining,
 	};
+}
+
+/**
+ * Map skill names to loadable paths, using the slash commands of the parent
+ * session. Each skill command carries the SKILL.md path of a skill the parent
+ * can see, installed packages included.
+ */
+function skillPathsByName(commands: SlashCommandInfo[]): Map<string, string> {
+	const byName = new Map<string, string>();
+	for (const command of commands) {
+		if (command.source === "skill") byName.set(command.name.replace(/^skill:/, ""), command.sourceInfo.path);
+	}
+	return byName;
+}
+
+/** Names of every skill the parent session can load, sorted. */
+export function listSkillNames(commands: SlashCommandInfo[]): string[] {
+	return [...skillPathsByName(commands).keys()].sort();
+}
+
+/**
+ * Resolve declared skill names to paths for the child's `--skill` flag. A name
+ * the parent cannot resolve comes back in `unknown`, for the caller to report.
+ */
+export function resolveSkillPaths(
+	names: string[],
+	commands: SlashCommandInfo[],
+): { paths: string[]; unknown: string[] } {
+	const byName = skillPathsByName(commands);
+	const paths: string[] = [];
+	const unknown: string[] = [];
+	for (const name of names) {
+		const path = byName.get(name);
+		if (path) paths.push(path);
+		else unknown.push(name);
+	}
+	return { paths, unknown };
 }
