@@ -1,10 +1,11 @@
 /**
  * max-bash-guard — a two-layer guard for bash tool calls.
  *
- * The guard has three modes:
- *   free   run every command, no guard
- *   trial  run the deterministic policy only
- *   jail   run the deterministic policy, then three probabilistic checkers
+ * The guard has four modes:
+ *   free      run every command, no guard
+ *   trial     run the deterministic policy only
+ *   jail      run the deterministic policy, then three probabilistic checkers
+ *   read-only allow inspection commands only
  *
  * A deterministic review opens the prompt in trial and jail mode. In jail mode,
  * a deterministic pass continues to three checkers. Two safe checker replies let
@@ -18,10 +19,12 @@
  */
 
 import {
+	DynamicBorder,
 	isToolCallEventType,
 	type ExtensionAPI,
 	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { Container, type SettingItem, SettingsList, Text } from "@earendil-works/pi-tui";
 
 import { analyzeCommand } from "./analyze.ts";
 import { runCheckers, type CheckerRunResult } from "./checkers.ts";
@@ -54,7 +57,7 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	async function askUser(ctx: ExtensionContext, command: string, reason: string): Promise<GuardDecision> {
-		const analysis = analyzeCommand(command, ctx.cwd, { profile: DEFAULT_CONFIG.policyProfile });
+		const analysis = analyzeCommand(command, ctx.cwd);
 		if (!ctx.hasUI) {
 			return { allowed: false, reason: `${TITLE}: ${reason}. Blocked in non-interactive mode.` };
 		}
@@ -80,7 +83,7 @@ export default function (pi: ExtensionAPI) {
 				: { allowed: false, reason: `${TITLE}: ${decision.reason}. Blocked in read-only mode.` };
 		}
 
-		const policy = evaluateCommandPolicy(command, ctx.cwd, { profile: DEFAULT_CONFIG.policyProfile });
+		const policy = evaluateCommandPolicy(command, ctx.cwd);
 		const step = afterDeterministic(mode, policy.action);
 
 		if (step === "run") return { allowed: true };
@@ -103,26 +106,60 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.registerCommand("maxguard", {
-		description: "Set the bash guard mode: read-only, free, trial, or jail",
-		getArgumentCompletions: (prefix) => {
-			const normalizedPrefix = prefix.trim().toLowerCase();
-			const matches = ["free", "trial", "jail", "read-only"].filter((value) => value.startsWith(normalizedPrefix));
-			return matches.length ? matches.map((value) => ({ value, label: value })) : null;
-		},
-		handler: async (args, ctx) => {
-			const value = args.trim().toLowerCase();
-			if (!value) {
-				ctx.ui.notify(`Bash guard mode: ${mode}`, "info");
+		description: "Configure the bash guard mode",
+		handler: async (_args, ctx) => {
+			if (ctx.mode !== "tui") {
+				ctx.ui.notify("/maxguard requires TUI mode", "warning");
 				return;
 			}
-			if (value !== "free" && value !== "trial" && value !== "jail" && value !== "read-only") {
-				ctx.ui.notify("Usage: /maxguard read-only|free|trial|jail", "warning");
-				return;
-			}
-			mode = value;
-			persistState();
-			updateStatus(ctx);
-			ctx.ui.notify(`Bash guard mode: ${mode}`, "info");
+
+			await ctx.ui.custom((tui, theme, _keybindings, done) => {
+				const items: SettingItem[] = [
+					{
+						id: "mode",
+						label: "Mode",
+						currentValue: mode,
+						values: ["free", "trial", "jail", "read-only"],
+					},
+				];
+				const container = new Container();
+				container.addChild(new DynamicBorder((text) => theme.fg("accent", text)));
+				container.addChild(new Text(theme.fg("accent", theme.bold("Bash Guard Settings"))));
+
+				const settingsList = new SettingsList(
+					items,
+					1,
+					{
+						label: (text, selected) => (selected ? theme.fg("accent", text) : text),
+						value: (text, selected) => theme.fg(selected ? "accent" : "muted", text),
+						description: (text) => theme.fg("dim", text),
+						cursor: theme.fg("accent", "→ "),
+						hint: (text) => theme.fg("dim", text),
+					},
+					(id, newValue) => {
+						if (id !== "mode") return;
+						mode = parseGuardMode(newValue, mode);
+						persistState();
+						updateStatus(ctx);
+					},
+					() => done(undefined),
+				);
+				container.addChild(settingsList);
+				container.addChild(new DynamicBorder((text) => theme.fg("accent", text)));
+
+				return {
+					render(width: number) {
+						return container.render(width);
+					},
+					invalidate() {
+						container.invalidate();
+					},
+					handleInput(data: string) {
+						settingsList.handleInput(data);
+						tui.requestRender();
+					},
+				};
+			});
 		},
 	});
 

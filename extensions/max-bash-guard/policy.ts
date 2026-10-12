@@ -1,15 +1,10 @@
 import { execFileSync } from "node:child_process";
 import path from "node:path";
-import type { PolicyProfile } from "./config.ts";
 
 export type PolicyDecision =
 	| { action: "none" }
 	| { action: "allow"; reason: string }
 	| { action: "review"; reason: string };
-
-export interface PolicyOptions {
-	profile?: PolicyProfile;
-}
 
 const CLOUD_MUTATION_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
 	{ pattern: /^\s*(terraform|terragrunt)\s+.*\b(apply|destroy|import|state\s+(rm|mv|push)|taint|untaint|force-unlock)\b/i, label: "Terraform/Terragrunt state or resource mutation" },
@@ -214,8 +209,7 @@ function isFreelyMutablePath(cwd: string, filePath: string, git: { insideGitWork
 	return isInside(cwd, filePath) && !hasTrackedMatch(cwd, filePath, git.tracked);
 }
 
-export function evaluateCommandPolicy(command: string, cwd: string, options: PolicyOptions = {}): PolicyDecision {
-	const profile = options.profile ?? "balanced";
+export function evaluateCommandPolicy(command: string, cwd: string): PolicyDecision {
 	const normalized = normalizeCommand(command);
 
 	if (hasUnescapedNewline(command)) return { action: "review", reason: "multiple shell commands separated by newline" };
@@ -244,9 +238,6 @@ export function evaluateCommandPolicy(command: string, cwd: string, options: Pol
 	}
 
 	if (MUTATION_COMMAND_PATTERN.test(normalized) && resolvedPaths.length > 0) {
-		if (profile === "strict" && !resolvedPaths.every(isInTmp)) {
-			return { action: "review", reason: "strict profile requires approval for non-/tmp mutations" };
-		}
 		if (RECURSIVE_RM_PATTERN.test(normalized) && resolvedPaths.some((filePath) => filePath === cwd || isInside(filePath, cwd))) {
 			return { action: "review", reason: "recursive delete of current working directory" };
 		}

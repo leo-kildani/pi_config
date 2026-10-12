@@ -1,65 +1,83 @@
-/**
- * Tests for the /maxguard command completions and footer status.
- * Run with:
- *   node --experimental-strip-types --test extensions/max-bash-guard/index.test.ts
- */
+/** Tests for the max-bash-guard command UI and tool-call behavior. */
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
+import { DEFAULT_CONFIG, type GuardMode } from "./config.ts";
 import maxBashGuard from "./index.ts";
 
-type Completion = { value: string; label: string };
 type CommandRegistration = {
-	getArgumentCompletions?: (prefix: string) => Completion[] | null;
 	handler: (args: string, ctx: ExtensionContext) => Promise<void>;
 };
 
-type ToolCallHandler = (event: { toolName: string; input: { command: string } }, ctx: ExtensionContext) => Promise<{ block: boolean; reason: string } | void>;
+type ToolCallHandler = (
+	event: { toolName: string; input: { command: string } },
+	ctx: ExtensionContext,
+) => Promise<{ block: boolean; reason: string } | void>;
 
 function createGuard() {
 	let command: CommandRegistration | undefined;
-	let flagDefault: unknown;
 	let toolCall: ToolCallHandler | undefined;
+	const entries: unknown[] = [];
 	const pi = {
-		registerFlag: (_name: string, options: { default?: unknown }) => {
-			flagDefault = options.default;
-		},
-		registerCommand: (_name: string, options: CommandRegistration) => {
-			command = options;
+		registerFlag() {},
+		registerCommand: (_name: string, registration: CommandRegistration) => {
+			command = registration;
 		},
 		on: (event: string, handler: ToolCallHandler) => {
 			if (event === "tool_call") toolCall = handler;
 		},
-		appendEntry: () => {},
+		appendEntry: (_type: string, data: unknown) => entries.push(data),
 		getFlag: () => undefined,
 	} as unknown as ExtensionAPI;
 
 	maxBashGuard(pi);
 	assert.ok(command);
 	assert.ok(toolCall);
-	return { command, flagDefault, toolCall };
+	return { command, entries, toolCall };
 }
 
-describe("/maxguard argument completions", () => {
-	it("suggests guard modes that match the argument prefix", () => {
-		const { command, flagDefault } = createGuard();
+describe("/maxguard", () => {
+	it("shows the mode setting, cycles through modes, and persists each change", async () => {
+		const { command, entries } = createGuard();
+		const modes: GuardMode[] = ["free", "trial", "jail", "read-only"];
+		const currentIndex = modes.indexOf(DEFAULT_CONFIG.mode);
+		const nextModes = Array.from(
+			{ length: modes.length },
+			(_, step) => modes[(currentIndex + step + 1) % modes.length]!,
+		);
+		const statuses: string[] = [];
+		let pickerContent = "";
+		const ctx = {
+			mode: "tui",
+			cwd: process.cwd(),
+			hasUI: true,
+			ui: {
+				notify() {},
+				setStatus: (_key: string, text: string) => statuses.push(text),
+				theme: { fg: (color: string, text: string) => `${color}:${text}` },
+				custom: async (
+					factory: (tui: any, theme: any, keybindings: any, done: (value?: unknown) => void) => any,
+				) => new Promise((resolve) => {
+					const theme = {
+						fg: (color: string, text: string) => `${color}:${text}`,
+						bold: (text: string) => text,
+					};
+					const component = factory({ requestRender() {} }, theme, {}, resolve);
+					pickerContent = component.render(80).join("\n");
+					for (let index = 0; index < modes.length; index++) component.handleInput("\r");
+					component.handleInput("\x1b");
+				}),
+			},
+		} as unknown as ExtensionContext;
 
-		assert.equal(flagDefault, "read-only");
-		assert.deepEqual(command.getArgumentCompletions?.(""), [
-			{ value: "free", label: "free" },
-			{ value: "trial", label: "trial" },
-			{ value: "jail", label: "jail" },
-			{ value: "read-only", label: "read-only" },
-		]);
-		assert.deepEqual(command.getArgumentCompletions?.("TR"), [
-			{ value: "trial", label: "trial" },
-		]);
-		assert.deepEqual(command.getArgumentCompletions?.("READ"), [
-			{ value: "read-only", label: "read-only" },
-		]);
-		assert.equal(command.getArgumentCompletions?.("unknown"), null);
+		await command.handler("", ctx);
+
+		assert.match(pickerContent, /Mode/);
+		assert.match(pickerContent, new RegExp(DEFAULT_CONFIG.mode));
+		assert.deepEqual(entries.map((entry) => (entry as { mode: GuardMode }).mode), nextModes);
+		assert.deepEqual(statuses, nextModes.map((mode) => `${mode === "free" ? "dim" : "success"}:🛡: ${mode}`));
 	});
 });
 
@@ -100,30 +118,5 @@ describe("read-only mode tool calls", () => {
 		assert.equal(decision?.block, true);
 		assert.equal(checkerCalls, 0);
 		assert.equal(promptCalls, 0);
-	});
-});
-
-describe("/maxguard footer status", () => {
-	it("shows each selected mode with the shield and its existing color", async () => {
-		const { command } = createGuard();
-		const statuses: string[] = [];
-		const ctx = {
-			ui: {
-				setStatus: (_key: string, text: string) => statuses.push(text),
-				theme: { fg: (color: string, text: string) => `${color}:${text}` },
-				notify: () => {},
-			},
-		} as unknown as ExtensionContext;
-
-		for (const mode of ["free", "trial", "jail", "read-only"]) {
-			await command.handler(mode, ctx);
-		}
-
-		assert.deepEqual(statuses, [
-			"dim:🛡: free",
-			"success:🛡: trial",
-			"success:🛡: jail",
-			"success:🛡: read-only",
-		]);
 	});
 });

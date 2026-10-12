@@ -6,7 +6,7 @@
  * reports the destructive segments with their source offsets.
  */
 
-import { evaluateCommandPolicy, type PolicyOptions } from "./policy.ts";
+import { evaluateCommandPolicy } from "./policy.ts";
 
 export interface CommandSpan {
 	text: string;
@@ -89,12 +89,12 @@ function wholeCommandSpan(command: string): CommandSpan | null {
 	return spans[0] ?? null;
 }
 
-export function analyzeCommand(command: string, cwd: string, options: PolicyOptions = {}): CommandAnalysis {
+export function analyzeCommand(command: string, cwd: string): CommandAnalysis {
 	const spans: CommandSpan[] = [];
 	const reasons: string[] = [];
 
 	for (const segment of splitCommandChain(command)) {
-		const decision = evaluateCommandPolicy(segment.text, cwd, options);
+		const decision = evaluateCommandPolicy(segment.text, cwd);
 		if (decision.action === "review") {
 			spans.push(segment);
 			reasons.push(decision.reason);
@@ -102,7 +102,7 @@ export function analyzeCommand(command: string, cwd: string, options: PolicyOpti
 	}
 
 	if (spans.length === 0) {
-		const decision = evaluateCommandPolicy(command, cwd, options);
+		const decision = evaluateCommandPolicy(command, cwd);
 		if (decision.action === "review") {
 			const whole = wholeCommandSpan(command);
 			if (whole) spans.push(whole);
