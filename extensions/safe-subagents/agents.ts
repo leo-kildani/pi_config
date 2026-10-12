@@ -260,6 +260,43 @@ export function discoverAgents(cwd: string, scope: AgentScope): AgentDiscoveryRe
 	return { agents: Array.from(agentMap.values()), projectAgentsDir };
 }
 
+export function findMentionedAgents(text: string, agents: AgentConfig[]): AgentConfig[] {
+	const byName = new Map(agents.map((agent) => [agent.name.toLowerCase(), agent]));
+	const found: AgentConfig[] = [];
+	const seen = new Set<string>();
+	const mentions = /(^|[\s。、？！])@([\w-]+)/g;
+
+	for (const match of text.matchAll(mentions)) {
+		const end = match.index! + match[0].length;
+		if (text[end] === "/") continue;
+
+		const agent = byName.get(match[2].toLowerCase());
+		if (!agent || seen.has(agent.name.toLowerCase())) continue;
+		seen.add(agent.name.toLowerCase());
+		found.push(agent);
+	}
+
+	return found;
+}
+
+export function replaceAgentMentions(text: string, agents: AgentConfig[]): string {
+	if (agents.length === 0) return text;
+
+	const byName = new Map(agents.map((agent) => [agent.name.toLowerCase(), agent]));
+	const scope: AgentScope = agents.some((agent) => agent.source === "project") ? "both" : "user";
+	const scopeArg = scope === "both" ? `, agentScope="both"` : "";
+	const mentions = /(^|[\s。、？！])@([\w-]+)/g;
+
+	return text.replace(mentions, (match, lead: string, name: string, offset: number) => {
+		if (text[offset + match.length] === "/") return match;
+
+		const agent = byName.get(name.toLowerCase());
+		if (!agent) return match;
+
+		return `${lead}the subagent named "${agent.name}" (spawn it with the safe_subagents tool, agent="${agent.name}"${scopeArg})`;
+	});
+}
+
 export function formatAgentList(agents: AgentConfig[], maxItems: number): { text: string; remaining: number } {
 	if (agents.length === 0) return { text: "none", remaining: 0 };
 	const listed = agents.slice(0, maxItems);

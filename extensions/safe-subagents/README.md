@@ -16,6 +16,7 @@ its own prompt to a subprocess.
 - **Markdown rendering**: Final output rendered with proper formatting (expanded view)
 - **Usage tracking**: Shows turns, tokens, cost, and context usage per agent
 - **Abort support**: Ctrl+C propagates to kill subagent processes
+- **Agent mentions**: Type `@` to complete known agent names while keeping Pi’s file suggestions
 
 ## Structure
 
@@ -24,6 +25,7 @@ safe-subagents/
 ├── README.md            # This file
 ├── index.ts             # The extension (entry point)
 ├── agents.ts            # Agent discovery logic
+├── mentions.ts          # Agent mention autocomplete
 ├── agents/              # Sample agent definitions
 │   ├── explorer.md      # Read-only recon and task scoping
 │   └── code-reviewer.md # Read-only code review
@@ -67,6 +69,8 @@ This tool executes a separate `pi` subprocess with a delegated system prompt and
 
 **Default behavior:** Only loads **user-level agents** from `~/.pi/agent/agents`.
 
+The `safe_subagents` tool still defaults to user-level agents. Agent mentions and their autocomplete also discover agents in the nearest project `.pi/agents` directory. A project mention uses `agentScope: "both"`, so the existing confirmation prompt applies in an untrusted project.
+
 The child process starts with `--no-skills` and then receives one `--skill` path per name in the agent's `skills` field. Skills are resolved by name against the parent session, so a subagent can load any skill the parent can see, including skills from installed packages. An agent without the field loads no skills.
 
 The child also starts with `--no-extensions`. The parent resolves each extension selector against source metadata from loaded extension tools and commands, then passes the resolved path to the child as `--extension`. A selector must match one loaded extension. Unknown or ambiguous selectors fail before the child starts. Extensions that register no tools or commands need an explicit path.
@@ -93,6 +97,18 @@ Run explorer twice in parallel: one task finds models, the other finds providers
 ```
 Use a chain: first have explorer find the read tool, then have code-reviewer review the relevant implementation
 ```
+
+## Agent Mentions
+
+In TUI mode, type `@` to see user-level and nearest-project agents. Type part of a name to filter the list. Agent rows appear before matching file rows. Pi keeps its normal completion behavior.
+
+Use a mention in a request to direct Pi to the existing tool:
+
+```text
+Have @code-reviewer review our latest feature
+```
+
+Pi replaces each known mention with an inline instruction. The instruction names the agent and the `safe_subagents` tool. The main agent keeps the rest of the request. Thus the main agent can do one part of the request, and the subagent can do another part. Multiple distinct mentions create one task per agent. A project agent mention sets `agentScope: "both"`, so the trust confirmation applies. The autocomplete list uses the same project-over-user name precedence as `agentScope: "both"`.
 
 ## Tool Modes
 

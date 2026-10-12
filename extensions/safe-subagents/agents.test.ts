@@ -13,8 +13,10 @@ import * as path from "node:path";
 import {
 	buildExtensionArgs,
 	discoverAgents,
+	findMentionedAgents,
 	listExtensionNames,
 	listSkillNames,
+	replaceAgentMentions,
 	resolveExtensionPaths,
 	resolveSkillPaths,
 } from "./agents.ts";
@@ -64,6 +66,18 @@ describe("resolveSkillPaths", () => {
 	});
 });
 
+function testAgent(name: string, source: "user" | "project" = "user") {
+	return {
+		name,
+		description: `${name} agent`,
+		extensions: [],
+		skills: [],
+		systemPrompt: "",
+		source,
+		filePath: `/${name}.md`,
+	};
+}
+
 function writeAgent(body: string): string {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "safe-subagents-test-"));
 	fs.mkdirSync(path.join(dir, ".pi", "agents"), { recursive: true });
@@ -72,6 +86,28 @@ function writeAgent(body: string): string {
 }
 
 describe("discoverAgents", () => {
+	it("lets a project agent override a user agent with the same name in both scope", () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "safe-subagents-test-"));
+		const agentDir = path.join(root, "user-agent");
+		const projectDir = path.join(root, "project");
+		fs.mkdirSync(path.join(agentDir, "agents"), { recursive: true });
+		fs.mkdirSync(path.join(projectDir, ".pi", "agents"), { recursive: true });
+		fs.writeFileSync(path.join(agentDir, "agents", "shared.md"), "---\nname: shared\ndescription: user\n---\nUser body\n");
+		fs.writeFileSync(path.join(projectDir, ".pi", "agents", "shared.md"), "---\nname: shared\ndescription: project\n---\nProject body\n");
+
+		const previous = process.env.PI_CODING_AGENT_DIR;
+		process.env.PI_CODING_AGENT_DIR = agentDir;
+		try {
+			const agent = discoverAgents(projectDir, "both").agents[0];
+			assert.equal(agent.source, "project");
+			assert.equal(agent.description, "project");
+		} finally {
+			if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
+			else process.env.PI_CODING_AGENT_DIR = previous;
+			fs.rmSync(root, { recursive: true, force: true });
+		}
+	});
+
 	it("reads a comma separated extensions list", () => {
 		const dir = writeAgent("---\nname: a\ndescription: d\nextensions: ./guard.ts, ./search.ts\n---\nBody\n");
 		assert.deepEqual(discoverAgents(dir, "project").agents[0].extensions, ["./guard.ts", "./search.ts"]);
@@ -117,6 +153,92 @@ describe("discoverAgents", () => {
 	it("loads no skills when the value is not a name list", () => {
 		const dir = writeAgent("---\nname: a\ndescription: d\nskills:\n  ponytail: true\n---\nBody\n");
 		assert.deepEqual(discoverAgents(dir, "project").agents[0].skills, []);
+	});
+});
+
+describe("findMentionedAgents", () => {
+	it("finds known handles anywhere in the message and keeps first-seen unique order", () => {
+		const agents = [testAgent("code-reviewer"), testAgent("explorer", "project")];
+
+		assert.deepEqual(
+			findMentionedAgents("Have @code-reviewer review this, then ask @explorer. @code-reviewer again", agents),
+			[agents[0], agents[1]],
+		);
+	});
+
+	it("matches known names without regard to case", () => {
+		const agents = [testAgent("code-reviewer")];
+
+		assert.deepEqual(findMentionedAgents("Have @CODE-REVIEWER review this", agents), agents);
+	});
+
+	it("ignores unknown handles and path-like tokens", () => {
+		const agents = [testAgent("src"), testAgent("reviewer")];
+
+		assert.deepEqual(findMentionedAgents("Read @src/index.ts and ask @unknown", agents), []);
+	});
+
+	it("returns no agents when the message has no known handle", () => {
+		assert.deepEqual(findMentionedAgents("Review the latest feature", [testAgent("reviewer")]), []);
+	});
+});
+
+describe("replaceAgentMentions", () => {
+	it("keeps the main-agent text and replaces only the mention token", () => {
+		const agents = [testAgent("explorer")];
+
+		assert.equal(
+			replaceAgentMentions("clone the repo then have @explorer inspect it", agents),
+			'clone the repo then have the subagent named "explorer" (spawn it with the safe_subagents tool, agent="explorer") inspect it',
+		);
+	});
+
+	it("replaces a mention at the start of the message", () => {
+		assert.equal(
+			replaceAgentMentions("@explorer find the read tool", [testAgent("explorer")]),
+			'the subagent named "explorer" (spawn it with the safe_subagents tool, agent="explorer") find the read tool',
+		);
+	});
+
+	it("adds agentScope to a project agent mention", () => {
+		assert.equal(
+			replaceAgentMentions("ask @explorer", [testAgent("explorer", "project")]),
+			'ask the subagent named "explorer" (spawn it with the safe_subagents tool, agent="explorer", agentScope="both")',
+		);
+	});
+
+	it("adds agentScope to every mention when one agent is project-level", () => {
+		const agents = [testAgent("reviewer"), testAgent("explorer", "project")];
+
+		assert.equal(
+			replaceAgentMentions("ask @reviewer then @explorer", agents),
+			'ask the subagent named "reviewer" (spawn it with the safe_subagents tool, agent="reviewer", agentScope="both") then the subagent named "explorer" (spawn it with the safe_subagents tool, agent="explorer", agentScope="both")',
+		);
+	});
+
+	it("leaves unknown mentions and path-like tokens unchanged", () => {
+		assert.equal(
+			replaceAgentMentions("Read @src/index.ts and ask @unknown", [testAgent("src")]),
+			"Read @src/index.ts and ask @unknown",
+		);
+	});
+
+	it("replaces a repeated mention at each occurrence", () => {
+		const agents = [testAgent("explorer")];
+		const result = replaceAgentMentions("ask @explorer then @explorer again", agents);
+
+		assert.equal(result.match(/spawn it with the safe_subagents tool/g)?.length, 2);
+	});
+
+	it("matches without regard to case and writes the canonical name", () => {
+		assert.equal(
+			replaceAgentMentions("ask @Explorer", [testAgent("explorer")]),
+			'ask the subagent named "explorer" (spawn it with the safe_subagents tool, agent="explorer")',
+		);
+	});
+
+	it("returns the text unchanged when no agent is known", () => {
+		assert.equal(replaceAgentMentions("Review the latest feature", []), "Review the latest feature");
 	});
 });
 

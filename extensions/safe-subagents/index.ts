@@ -31,15 +31,18 @@ import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import {
 	buildExtensionArgs,
+	findMentionedAgents,
 	type AgentConfig,
 	type AgentScope,
 	type ExtensionSource,
 	discoverAgents,
 	listExtensionNames,
 	listSkillNames,
+	replaceAgentMentions,
 	resolveExtensionPaths,
 	resolveSkillPaths,
 } from "./agents.ts";
+import { createAgentMentionProvider } from "./mentions.ts";
 
 const MAX_PARALLEL_TASKS = 8;
 const MAX_CONCURRENCY = 4;
@@ -523,6 +526,29 @@ const SubagentParams = Type.Object({
 });
 
 export default function (pi: ExtensionAPI) {
+	let autocompleteRegistered = false;
+	let activeCwd = process.cwd();
+
+	pi.on("session_start", (_event, ctx) => {
+		activeCwd = ctx.cwd;
+		if (ctx.mode !== "tui" || autocompleteRegistered) return;
+		autocompleteRegistered = true;
+		ctx.ui.addAutocompleteProvider((current) =>
+			createAgentMentionProvider(current, () => discoverAgents(activeCwd, "both").agents),
+		);
+	});
+
+	pi.on("input", (event, ctx) => {
+		if (event.source === "extension") return { action: "continue" };
+
+		const agents = findMentionedAgents(event.text, discoverAgents(ctx.cwd, "both").agents);
+		if (agents.length === 0) return { action: "continue" };
+
+		const text = replaceAgentMentions(event.text, agents);
+
+		return { action: "transform", text, ...(event.images && { images: event.images }) };
+	});
+
 	pi.registerTool({
 		name: "safe_subagents",
 		label: "Safe subagents",
