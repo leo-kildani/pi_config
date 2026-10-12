@@ -13,7 +13,7 @@ pi install git:github.com/leo-kildani/pi_config
 Pi loads two resource sets from the root `package.json`:
 
 - `skills/` — reusable skill instructions.
-- `extensions/` — autocompact, plan, todowrite, and webtools.
+- `extensions/` — max-bash-guard, safe-subagents, todowrite, and webtools.
 
 The file `packages.txt` lists external pi packages.
 
