@@ -25,14 +25,8 @@ safe-subagents/
 ├── index.ts             # The extension (entry point)
 ├── agents.ts            # Agent discovery logic
 ├── agents/              # Sample agent definitions
-│   ├── scout.md         # Fast recon, returns compressed context
-│   ├── planner.md       # Creates implementation plans
-│   ├── reviewer.md      # Code review
-│   └── worker.md        # General-purpose (full capabilities)
-└── prompts/             # Workflow presets (prompt templates)
-    ├── implement.md     # scout -> planner -> worker
-    ├── scout-and-plan.md    # scout -> planner (no implementation)
-    └── implement-and-review.md  # worker -> reviewer -> worker
+│   ├── explorer.md      # Read-only recon and task scoping
+│   └── code-reviewer.md # Read-only code review
 ```
 
 ## Installation
@@ -53,20 +47,13 @@ entry:
 
 Add `-extensions/safe-subagents/index.ts` to turn it off again.
 
-The sample agents and workflow prompts are plain files. Symlink them so the
-extension and the prompt templates can find them:
+The sample agents are plain files. Symlink them so the extension can find them:
 
 ```bash
 # Agents
 mkdir -p ~/.pi/agent/agents
 for f in extensions/safe-subagents/agents/*.md; do
   ln -sf "$(pwd)/$f" ~/.pi/agent/agents/$(basename "$f")
-done
-
-# Workflow prompts
-mkdir -p ~/.pi/agent/prompts
-for f in extensions/safe-subagents/prompts/*.md; do
-  ln -sf "$(pwd)/$f" ~/.pi/agent/prompts/$(basename "$f")
 done
 ```
 
@@ -94,24 +81,17 @@ When running interactively, the tool prompts for confirmation before running pro
 
 ### Single agent
 ```
-Use scout to find all authentication code
+Use explorer to find all authentication code
 ```
 
 ### Parallel execution
 ```
-Run 2 scouts in parallel: one to find models, one to find providers
+Run explorer twice in parallel: one task finds models, the other finds providers
 ```
 
 ### Chained workflow
 ```
-Use a chain: first have scout find the read tool, then have planner suggest improvements
-```
-
-### Workflow prompts
-```
-/implement add Redis caching to the session store
-/scout-and-plan refactor auth to support OAuth
-/implement-and-review add input validation to API endpoints
+Use a chain: first have explorer find the read tool, then have code-reviewer review the relevant implementation
 ```
 
 ## Tool Modes
@@ -159,13 +139,14 @@ description: What this agent does
 tools: read, grep, find, ls, bash, my_extension_tool
 skills: ponytail, writing-in-ste
 extensions: "@example/pi-tools:src"
-model: claude-haiku-4-5
+model: gpt-6-luna
+thinking: low
 ---
 
 System prompt for the agent goes here.
 ```
 
-When `model` is omitted, the subagent inherits the dispatching session's active model and thinking level.
+When `model` is omitted, the subagent inherits the dispatching session's active model and thinking level. Set `thinking` to override the thinking level for an agent, including when you set its model.
 
 `skills` takes a comma separated list or a YAML array. Use the `name` field of the skill's frontmatter, not a path.
 
@@ -181,20 +162,10 @@ Project agents override user agents with the same name when `agentScope: "both"`
 
 | Agent | Purpose | Model | Tools |
 |-------|---------|-------|-------|
-| `scout` | Fast codebase recon | Haiku | read, grep, find, ls, bash |
-| `planner` | Implementation plans | Sonnet | read, grep, find, ls |
-| `reviewer` | Code review | Sonnet | read, grep, find, ls, bash |
-| `worker` | General-purpose | Sonnet | (all default) |
+| `explorer` | Read-only codebase recon and task scoping | openrouter/openai/gpt-6-luna (low) | read, fffind, ffgrep, bash |
+| `code-reviewer` | Read-only code review | openrouter/deepseek/deepseek-v4.1-flash (high) | read, fffind, ffgrep, bash |
 
-The listed scout, planner, reviewer, and worker agents do not declare `skills` or `extensions`, so they load neither.
-
-## Workflow Prompts
-
-| Prompt | Flow |
-|--------|------|
-| `/implement <query>` | scout → planner → worker |
-| `/scout-and-plan <query>` | scout → planner |
-| `/implement-and-review <query>` | worker → reviewer → worker |
+`explorer` loads the `pi-fff` and `max-bash-guard` extensions. `code-reviewer` loads only its declared review skill and extensions.
 
 ## Error Handling
 

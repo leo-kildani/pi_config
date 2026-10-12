@@ -21,7 +21,7 @@ Run these commands from the repository root.
 ## Testing
 
 - Test files live next to the code. The name pattern is `<module>.test.ts`.
-- `agents.ts` is pure logic. Test it with the Node test runner, with no subprocess.
+- `agents.ts` is pure logic. Test it with the Node test runner, with no subprocess. Its discovery tests cover agent model and thinking overrides.
 - `index.ts` starts a real `pi` process. Test it manually, end to end.
 - Add a test for each behavior change in `agents.ts`.
 
@@ -32,7 +32,6 @@ A manual end-to-end test needs three items: an agent file in `~/.pi/agent/agents
 - `index.ts` — the tool: parameters, process spawn, streaming display, rendering.
 - `agents.ts` — agent discovery, frontmatter parsing, skill-name resolution.
 - `agents/*.md` — sample agent definitions.
-- `prompts/*.md` — workflow prompt templates for `/implement`, `/scout-and-plan`, and `/implement-and-review`.
 
 ## Isolation rules
 
@@ -45,7 +44,7 @@ Keep these properties. They are the purpose of the extension.
 - An extension-provided tool requires both its extension in `extensions:` and its tool name in `tools:`.
 - A subagent without a `skills:` field loads no skills.
 - A subagent without an `extensions:` field loads no extensions.
-- A subagent without a `model:` field inherits the parent model and thinking level.
+- A subagent without a `model:` field inherits the parent model and thinking level. A `thinking:` field overrides the thinking level, including when the agent sets its own model.
 - A skill or extension name that the parent session cannot resolve fails the task before the spawn.
 - Project agents load only with `agentScope: "project"` or `"both"`. An untrusted project also needs the confirmation prompt.
 
@@ -74,4 +73,4 @@ That file is local to this machine. Do not commit it.
 
 ## Sample agents
 
-No sample agent declares `skills:`, so each one loads no skills. Add the key when a sample needs a skill.
+`explorer` loads the `pi-fff` and `max-bash-guard` extensions. `code-reviewer` declares its review skill and extensions; keep those resources available when testing the sample agent.

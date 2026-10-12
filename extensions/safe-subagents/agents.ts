@@ -17,6 +17,7 @@ export interface AgentConfig {
 	/** Skills this agent may load. Empty means it loads none. */
 	skills: string[];
 	model?: string;
+	thinking?: string;
 	systemPrompt: string;
 	source: "user" | "project";
 	filePath: string;
@@ -144,6 +145,7 @@ type AgentFrontmatter = {
 	extensions?: unknown;
 	skills?: unknown;
 	model?: unknown;
+	thinking?: unknown;
 };
 
 /**
@@ -207,6 +209,7 @@ function loadAgentsFromDir(dir: string, source: "user" | "project"): AgentConfig
 			extensions: parseNameList(frontmatter.extensions),
 			skills: parseNameList(frontmatter.skills),
 			model: typeof frontmatter.model === "string" ? frontmatter.model : undefined,
+			thinking: typeof frontmatter.thinking === "string" ? frontmatter.thinking : undefined,
 			systemPrompt: body,
 			source,
 			filePath,

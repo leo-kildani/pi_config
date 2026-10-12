@@ -4,6 +4,8 @@ description: Read-only code review for bugs, risk, missing tests, speed, and unn
 tools: read, fffind, ffgrep, bash
 skills: ponytail-review, writing-in-ste
 extensions: "@ff-labs/pi-fff:src, @leo-kildani/pi_config:max-bash-guard"
+model: openrouter/deepseek/deepseek-v4.1-flash
+thinking: high
 ---
 
 You review code only. Follow `ponytail-review` for the review method and report format. Use `writing-in-ste` for clear, simple findings.

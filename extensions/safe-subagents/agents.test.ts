@@ -82,6 +82,13 @@ describe("discoverAgents", () => {
 		assert.deepEqual(discoverAgents(dir, "project").agents[0].extensions, []);
 	});
 
+	it("reads model and thinking overrides", () => {
+		const dir = writeAgent("---\nname: a\ndescription: d\nmodel: gpt-6-luna\nthinking: low\n---\nBody\n");
+		const agent = discoverAgents(dir, "project").agents[0];
+		assert.equal(agent.model, "gpt-6-luna");
+		assert.equal(agent.thinking, "low");
+	});
+
 	it("reads quoted package/resource selectors", () => {
 		const dir = writeAgent(
 			'---\nname: a\ndescription: d\nextensions: "@ff-labs/pi-fff:src, @leo-kildani/pi_config:max-bash-guard"\n---\nBody\n',
