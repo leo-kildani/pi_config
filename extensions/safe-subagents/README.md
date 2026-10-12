@@ -10,6 +10,7 @@ its own prompt to a subprocess.
 
 - **Isolated context**: Each subagent runs in a separate `pi` process
 - **Skill isolation**: A subagent loads only the skills its definition names, and no others
+- **Extension isolation**: A subagent loads only the extensions its definition names, and no others
 - **Streaming output**: See tool calls and progress as they happen
 - **Parallel streaming**: All parallel tasks stream updates simultaneously
 - **Markdown rendering**: Final output rendered with proper formatting (expanded view)
@@ -81,6 +82,10 @@ This tool executes a separate `pi` subprocess with a delegated system prompt and
 
 The child process starts with `--no-skills` and then receives one `--skill` path per name in the agent's `skills` field. Skills are resolved by name against the parent session, so a subagent can load any skill the parent can see, including skills from installed packages. An agent without the field loads no skills.
 
+The child also starts with `--no-extensions`. The parent resolves each extension selector against source metadata from loaded extension tools and commands, then passes the resolved path to the child as `--extension`. A selector must match one loaded extension. Unknown or ambiguous selectors fail before the child starts. Extensions that register no tools or commands need an explicit path.
+
+Declare every extension-provided tool in the agent's `tools` field too. An extension tool is available only when its extension is listed and its tool name is allowed.
+
 To enable project-local agents, pass `agentScope: "both"` (or `"project"`). Only do this for repositories you trust.
 
 When running interactively, the tool prompts for confirmation before running project-local agents in untrusted projects. Trusted projects skip the additional prompt. Set `confirmProjectAgents: false` to disable confirmation.
@@ -151,8 +156,9 @@ Agents are markdown files with YAML frontmatter:
 ---
 name: my-agent
 description: What this agent does
-tools: read, grep, find, ls
+tools: read, grep, find, ls, bash, my_extension_tool
 skills: ponytail, writing-in-ste
+extensions: "@example/pi-tools:src"
 model: claude-haiku-4-5
 ---
 
@@ -162,6 +168,8 @@ System prompt for the agent goes here.
 When `model` is omitted, the subagent inherits the dispatching session's active model and thinking level.
 
 `skills` takes a comma separated list or a YAML array. Use the `name` field of the skill's frontmatter, not a path.
+
+`extensions` takes a comma separated list or a YAML array of Pi-style package/resource selectors, such as `@ff-labs/pi-fff:src`. A selector uses the package name and the extension resource path shown by Pi. An explicit file path or `builtin:<name>` also works. A name selector resolves only when a loaded extension registers a tool or command. Tools registered by an extension must also appear by name in `tools`. Both fields are empty by default.
 
 **Locations:**
 - `~/.pi/agent/agents/*.md` - User-level (always loaded)
@@ -178,7 +186,7 @@ Project agents override user agents with the same name when `agentScope: "both"`
 | `reviewer` | Code review | Sonnet | read, grep, find, ls, bash |
 | `worker` | General-purpose | Sonnet | (all default) |
 
-No sample agent declares `skills`, so each of them runs without skills.
+The listed scout, planner, reviewer, and worker agents do not declare `skills` or `extensions`, so they load neither.
 
 ## Workflow Prompts
 

@@ -40,9 +40,13 @@ Keep these properties. They are the purpose of the extension.
 
 - A subagent gets only the tools in its `tools:` field.
 - A subagent gets only the skills in its `skills:` field. The child starts with `--no-skills`. Each resolved name becomes one `--skill <path>` flag.
+- A subagent gets only the extensions in its `extensions:` field. The child starts with `--no-extensions`. Resolve each name from loaded extension source metadata, then pass its path with `--extension`.
+- Resolve names from source metadata on parent tools and extension commands. Fail before spawn for unknown or ambiguous names. Accept explicit paths for extensions that register no tools or commands.
+- An extension-provided tool requires both its extension in `extensions:` and its tool name in `tools:`.
 - A subagent without a `skills:` field loads no skills.
+- A subagent without an `extensions:` field loads no extensions.
 - A subagent without a `model:` field inherits the parent model and thinking level.
-- A skill name that the parent session cannot resolve fails the task before the spawn.
+- A skill or extension name that the parent session cannot resolve fails the task before the spawn.
 - Project agents load only with `agentScope: "project"` or `"both"`. An untrusted project also needs the confirmation prompt.
 
 Do not add a code path that lets the child discover resources outside these fields.
@@ -54,7 +58,7 @@ Pi adds the `<available_skills>` block to the system prompt only when the child 
 ## Code style
 
 - Use TypeScript with ESM. Import a runtime file with the `.ts` extension.
-- Keep the frontmatter parser forgiving. One bad file must not remove the other agents. Accept a comma separated string and a YAML array. Return no names for any other type.
+- Keep the frontmatter parser forgiving. One bad file must not remove the other agents. Accept a comma separated string and a YAML array for tools, skills, and extensions. Return no names for any other type.
 
 ## Local testing
 

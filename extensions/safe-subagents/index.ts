@@ -29,7 +29,17 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
-import { type AgentConfig, type AgentScope, discoverAgents, listSkillNames, resolveSkillPaths } from "./agents.ts";
+import {
+	buildExtensionArgs,
+	type AgentConfig,
+	type AgentScope,
+	type ExtensionSource,
+	discoverAgents,
+	listExtensionNames,
+	listSkillNames,
+	resolveExtensionPaths,
+	resolveSkillPaths,
+} from "./agents.ts";
 
 const MAX_PARALLEL_TASKS = 8;
 const MAX_CONCURRENCY = 4;
@@ -275,6 +285,7 @@ async function runSingleAgent(
 	dispatchDefaults: DispatchDefaults,
 	agents: AgentConfig[],
 	commands: SlashCommandInfo[],
+	extensionSources: ExtensionSource[],
 	agentName: string,
 	task: string,
 	cwd: string | undefined,
@@ -314,6 +325,28 @@ async function runSingleAgent(
 		};
 	}
 
+	const { paths: extensionPaths, unknown: unknownExtensions, ambiguous } = resolveExtensionPaths(
+		agent.extensions,
+		extensionSources,
+	);
+	if (unknownExtensions.length > 0 || ambiguous.length > 0) {
+		const problems = [
+			...(unknownExtensions.length > 0 ? [`Unknown extension selector(s): ${unknownExtensions.join(", ")}`] : []),
+			...ambiguous.map(({ name, paths }) => `Ambiguous extension selector "${name}" matches: ${paths.join(", ")}`),
+		];
+		const available = listExtensionNames(extensionSources).join(", ") || "none";
+		return {
+			agent: agentName,
+			agentSource: agent.source,
+			task,
+			exitCode: 1,
+			messages: [],
+			stderr: `${problems.join(". ")}. Available extension selectors: ${available}.`,
+			usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 },
+			step,
+		};
+	}
+
 	const args: string[] = ["--mode", "json", "-p", "--no-session"];
 	const inheritsDispatchConfig = !agent.model;
 	const model = agent.model ?? dispatchDefaults.model;
@@ -322,8 +355,9 @@ async function runSingleAgent(
 		args.push("--thinking", dispatchDefaults.thinkingLevel);
 	}
 	if (agent.tools && agent.tools.length > 0) args.push("--tools", agent.tools.join(","));
+	args.push(...buildExtensionArgs(extensionPaths));
 
-	// Isolation: the child discovers no skills of its own, only the declared ones.
+	// Isolation: the child loads only declared extensions and skills.
 	args.push("--no-skills");
 	for (const skillPath of skillPaths) args.push("--skill", skillPath);
 
@@ -510,6 +544,10 @@ export default function (pi: ExtensionAPI) {
 			const discovery = discoverAgents(ctx.cwd, agentScope);
 			const agents = discovery.agents;
 			const commands = pi.getCommands();
+			const extensionSources: ExtensionSource[] = [
+				...pi.getAllTools(),
+				...commands.filter((command) => command.source === "extension"),
+			];
 			const confirmProjectAgents = params.confirmProjectAgents ?? true;
 
 			const hasChain = (params.chain?.length ?? 0) > 0;
@@ -597,6 +635,7 @@ export default function (pi: ExtensionAPI) {
 						dispatchDefaults,
 						agents,
 						commands,
+						extensionSources,
 						step.agent,
 						taskWithContext,
 						step.cwd,
@@ -671,6 +710,7 @@ export default function (pi: ExtensionAPI) {
 						dispatchDefaults,
 						agents,
 						commands,
+						extensionSources,
 						t.agent,
 						t.task,
 						t.cwd,
@@ -715,6 +755,7 @@ export default function (pi: ExtensionAPI) {
 					dispatchDefaults,
 					agents,
 					commands,
+					extensionSources,
 					params.agent,
 					params.task,
 					params.cwd,

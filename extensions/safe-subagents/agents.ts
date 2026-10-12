@@ -12,6 +12,8 @@ export interface AgentConfig {
 	name: string;
 	description: string;
 	tools?: string[];
+	/** Extensions this agent may load. Empty means it loads none. */
+	extensions: string[];
 	/** Skills this agent may load. Empty means it loads none. */
 	skills: string[];
 	model?: string;
@@ -23,6 +25,108 @@ export interface AgentConfig {
 export interface AgentDiscoveryResult {
 	agents: AgentConfig[];
 	projectAgentsDir: string | null;
+}
+
+export interface ExtensionSource {
+	sourceInfo: { path: string; source: string; baseDir?: string };
+}
+
+export interface ExtensionPathResolution {
+	paths: string[];
+	unknown: string[];
+	ambiguous: Array<{ name: string; paths: string[] }>;
+}
+
+export function buildExtensionArgs(extensions: string[]): string[] {
+	return ["--no-extensions", ...extensions.flatMap((extension) => ["--extension", extension])];
+}
+
+function packageName(source: string): string {
+	let name = source.replace(/^(npm:|git:)/, "");
+	if (name.startsWith("github.com/")) name = `@${name.slice("github.com/".length)}`;
+	name = name.replace(/\.git$/, "");
+	const versionAt = name.lastIndexOf("@");
+	if (versionAt > name.lastIndexOf("/")) name = name.slice(0, versionAt);
+	return name === "local" || name.startsWith("<") ? "" : name;
+}
+
+function resourceName(sourceInfo: ExtensionSource["sourceInfo"]): string {
+	const relativePath = sourceInfo.baseDir ? path.relative(sourceInfo.baseDir, sourceInfo.path) : path.basename(sourceInfo.path);
+	const safePath = relativePath === ".." || relativePath.startsWith(`..${path.sep}`) || path.isAbsolute(relativePath)
+		? path.basename(sourceInfo.path)
+		: relativePath;
+	return safePath
+		.split(path.sep).join("/")
+		.replace(/^extensions\//, "")
+		.replace(/\/index\.(?:[cm]?[jt]sx?)$/i, "")
+		.replace(/\.(?:[cm]?[jt]sx?)$/i, "")
+		.replace(/\/$/, "")
+		.replace(/^\.$/, "");
+}
+
+function extensionSelectors(sourceInfo: ExtensionSource["sourceInfo"]): string[] {
+	if (sourceInfo.path.startsWith("builtin:") || sourceInfo.path.startsWith("<")) return [];
+	const packageId = packageName(sourceInfo.source);
+	const resource = resourceName(sourceInfo);
+	const selectors = new Set<string>();
+	if (packageId) {
+		selectors.add(packageId);
+		if (resource) selectors.add(`${packageId}:${resource}`);
+	} else if (resource) {
+		selectors.add(resource);
+	}
+	return [...selectors];
+}
+
+function extensionPathsBySelector(sources: ExtensionSource[]): Map<string, Set<string>> {
+	const bySelector = new Map<string, Set<string>>();
+	for (const { sourceInfo } of sources) {
+		for (const selector of extensionSelectors(sourceInfo)) {
+			const paths = bySelector.get(selector) ?? new Set<string>();
+			paths.add(sourceInfo.path);
+			bySelector.set(selector, paths);
+		}
+	}
+	return bySelector;
+}
+
+function isExplicitExtensionPath(value: string): boolean {
+	return (
+		path.isAbsolute(value) ||
+		value.startsWith("./") ||
+		value.startsWith("../") ||
+		value.startsWith("~/") ||
+		value.startsWith("builtin:") ||
+		value.startsWith("npm:") ||
+		value.startsWith("git:") ||
+		value.startsWith("github:") ||
+		value.startsWith("file:") ||
+		path.extname(value) !== ""
+	);
+}
+
+export function listExtensionNames(sources: ExtensionSource[]): string[] {
+	return [...extensionPathsBySelector(sources).keys()].sort();
+}
+
+export function resolveExtensionPaths(names: string[], sources: ExtensionSource[]): ExtensionPathResolution {
+	const bySelector = extensionPathsBySelector(sources);
+	const paths: string[] = [];
+	const unknown: string[] = [];
+	const ambiguous: ExtensionPathResolution["ambiguous"] = [];
+
+	for (const name of names) {
+		if (isExplicitExtensionPath(name)) {
+			paths.push(name);
+			continue;
+		}
+		const matches = [...(bySelector.get(name) ?? [])];
+		if (matches.length === 0) unknown.push(name);
+		else if (matches.length > 1) ambiguous.push({ name, paths: matches });
+		else paths.push(matches[0]);
+	}
+
+	return { paths: [...new Set(paths)], unknown, ambiguous };
 }
 
 /**
@@ -37,12 +141,13 @@ type AgentFrontmatter = {
 	name?: unknown;
 	description?: unknown;
 	tools?: unknown;
+	extensions?: unknown;
 	skills?: unknown;
 	model?: unknown;
 };
 
 /**
- * Normalize a frontmatter `tools` or `skills` value to a list of names.
+ * Normalize a frontmatter `tools`, `skills`, or `extensions` value to a list of names.
  *
  * Both spellings are valid YAML and both are in use:
  *
@@ -99,6 +204,7 @@ function loadAgentsFromDir(dir: string, source: "user" | "project"): AgentConfig
 			name: frontmatter.name,
 			description: frontmatter.description,
 			tools: tools.length > 0 ? tools : undefined,
+			extensions: parseNameList(frontmatter.extensions),
 			skills: parseNameList(frontmatter.skills),
 			model: typeof frontmatter.model === "string" ? frontmatter.model : undefined,
 			systemPrompt: body,
