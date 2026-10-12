@@ -539,8 +539,6 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("input", (event, ctx) => {
-		if (event.source === "extension") return { action: "continue" };
-
 		const agents = findMentionedAgents(event.text, discoverAgents(ctx.cwd, "both").agents);
 		if (agents.length === 0) return { action: "continue" };
 
