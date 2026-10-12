@@ -1,25 +1,18 @@
 /**
  * Probabilistic checker runner for the max-bash-guard extension.
  *
- * runCheckers sends the command to a set of checker calls on the session model.
+ * runCheckers sends the command to available System One classifier models.
  * A timeout or an error counts as an unknown reply, which is never safe.
  */
 
-import type { Api, Model } from "@earendil-works/pi-ai";
+import type { ClassifierApi, ClassifierModel } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 import type { MaxBashGuardConfig } from "./config.ts";
-import { parseCheckerReply, summarizeVotes, type CheckerReply, type VoteSummary } from "./decide.ts";
-
-export const CHECKER_SYSTEM_PROMPT = `You are a security checker. Review one bash command and decide if it is destructive.
-
-Respond with a single word: SAFE or DESTRUCTIVE. Do not explain. Do not add any other text.
-
-SAFE means the command is safe to run on a developer machine.
-DESTRUCTIVE means the command can delete or overwrite data, expose secrets, or mutate cloud resources.`;
+import { summarizeVotes, type CheckerReply, type VoteSummary } from "./decide.ts";
 
 interface CheckerModel {
-	model: Model<Api>;
+	model: ClassifierModel<ClassifierApi>;
 	label: string;
 }
 
@@ -34,31 +27,12 @@ export interface CheckerRunResult {
 	errors: string[];
 }
 
-function extractText(content: ReadonlyArray<{ type: string; text?: string }>, separator = ""): string {
-	return content
-		.filter((block) => block.type === "text" && typeof block.text === "string")
-		.map((block) => block.text)
-		.join(separator);
-}
-
-function resolveCheckerModels(ctx: ExtensionContext): CheckerModel[] {
-	const models: CheckerModel[] = [];
-	if (ctx.model && ctx.modelRegistry.hasConfiguredAuth(ctx.model)) {
-		models.push({ model: ctx.model, label: `${ctx.model.provider}/${ctx.model.id}` });
-	}
-	if (models.length === 0) {
-		for (const scoped of ctx.scopedModels) {
-			if (!ctx.modelRegistry.hasConfiguredAuth(scoped.model)) continue;
-			models.push({ model: scoped.model, label: `${scoped.model.provider}/${scoped.model.id}` });
-			break;
-		}
-	}
-	return models;
-}
-
-function distributeCheckers(models: CheckerModel[], count: number): CheckerModel[] {
-	if (models.length === 0) return [];
-	return Array.from({ length: count }, (_, index) => models[index % models.length]!);
+async function resolveCheckerModel(ctx: ExtensionContext, modelId?: string): Promise<CheckerModel | undefined> {
+	const models = await ctx.modelRegistry.getAvailableOfType("classifier");
+	const model = modelId === undefined
+		? models[0]
+		: models.find((candidate) => `${candidate.provider}/${candidate.id}` === modelId);
+	return model ? { model, label: `${model.provider}/${model.id}` } : undefined;
 }
 
 async function runOne(
@@ -78,17 +52,22 @@ async function runOne(
 	parentSignal?.addEventListener("abort", onParentAbort, { once: true });
 
 	try {
-		const response = await ctx.modelRegistry.complete(
+		const response = await ctx.modelRegistry.classify(
 			checker.model,
 			{
-				systemPrompt: CHECKER_SYSTEM_PROMPT,
-				messages: [{
-					role: "user" as const,
-					content: [{ type: "text" as const, text: `Bash command:\n${command}` }],
-					timestamp: Date.now(),
-				}],
+				state: { command },
+				questions: {
+					safety: {
+						type: "choice",
+						instructions: "Classify this bash command as safe or destructive on a developer machine.",
+						criteria: {
+							SAFE: "Safe to run on a developer machine.",
+							DESTRUCTIVE: "Can delete or overwrite data, expose secrets, or mutate cloud resources.",
+						},
+					},
+				},
 			},
-			{ maxTokens: 8, signal: controller.signal },
+			{ signal: controller.signal },
 		);
 
 		if (response.stopReason === "aborted") {
@@ -98,7 +77,9 @@ async function runOne(
 			return { reply: "unknown", error: response.errorMessage ?? "API error" };
 		}
 
-		const reply = parseCheckerReply(extractText(response.content));
+		const answer = response.answers.safety;
+		const choice = answer?.type === "choice" ? answer.choice : undefined;
+		const reply: CheckerReply = choice === "SAFE" ? "safe" : choice === "DESTRUCTIVE" ? "destructive" : "unknown";
 		if (reply === "unknown") {
 			return { reply, error: `Unexpected checker reply for ${checker.label}` };
 		}
@@ -118,12 +99,15 @@ export async function runCheckers(
 	config: MaxBashGuardConfig,
 	signal?: AbortSignal,
 ): Promise<CheckerRunResult> {
-	const models = resolveCheckerModels(ctx);
-	if (models.length === 0) {
-		return { replies: [], summary: summarizeVotes([]), errors: ["No checker model available"] };
+	const checker = await resolveCheckerModel(ctx, config.checkerModel);
+	if (!checker) {
+		const error = config.checkerModel
+			? `Selected checker model is unavailable: ${config.checkerModel}`
+			: "No checker model available";
+		return { replies: [], summary: summarizeVotes([]), errors: [error] };
 	}
 
-	const checkers = distributeCheckers(models, config.checkerCount);
+	const checkers = Array.from({ length: config.checkerCount }, () => checker);
 	const outcomes = await Promise.all(checkers.map((checker) => runOne(ctx, checker, command, config.checkerTimeoutMs, signal)));
 	const errors = outcomes.map((outcome) => outcome.error).filter((value): value is string => Boolean(value));
 	return { replies: outcomes.map((outcome) => outcome.reply), summary: summarizeVotes(outcomes.map((outcome) => outcome.reply)), errors };

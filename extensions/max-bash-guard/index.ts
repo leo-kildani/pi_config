@@ -4,12 +4,12 @@
  * The guard has four modes:
  *   free      run every command, no guard
  *   trial     run the deterministic policy only
- *   jail      run the deterministic policy, then three probabilistic checkers
+ *   jail      run the deterministic policy, then configured classifier checks
  *   read-only allow inspection commands only
  *
  * A deterministic review opens the prompt in trial and jail mode. In jail mode,
- * a deterministic pass continues to three checkers. Two safe checker replies let
- * the command run. Any other result opens the prompt.
+ * a deterministic pass continues to the selected classifier. The safe-vote
+ * threshold scales with the checker count. Other results open the prompt.
  *
  * The prompt shows the full command, a short reason, and an allow or deny
  * choice. The destructive sub-command appears in bold and the error color.
@@ -28,7 +28,7 @@ import { Container, type SettingItem, SettingsList, Text } from "@earendil-works
 
 import { analyzeCommand } from "./analyze.ts";
 import { runCheckers, type CheckerRunResult } from "./checkers.ts";
-import { DEFAULT_CONFIG, parseGuardMode, type GuardMode } from "./config.ts";
+import { CHECKER_COUNTS, DEFAULT_CONFIG, parseCheckerCount, parseGuardMode, scaleMinSafeVotes, type CheckerCount, type GuardMode } from "./config.ts";
 import { afterDeterministic, afterVotes } from "./decide.ts";
 import { evaluateCommandPolicy } from "./policy.ts";
 import { promptForDecision } from "./ui.ts";
@@ -40,6 +40,8 @@ const TITLE = "🛡 Bash guard";
 
 interface GuardState {
 	mode: GuardMode;
+	checkerModel?: string;
+	checkerCount?: CheckerCount;
 	timestamp: number;
 }
 
@@ -47,13 +49,20 @@ type GuardDecision = { allowed: true } | { allowed: false; reason: string };
 
 export default function (pi: ExtensionAPI) {
 	let mode: GuardMode = DEFAULT_CONFIG.mode;
+	let checkerModel: string | undefined;
+	let checkerCount = DEFAULT_CONFIG.checkerCount;
+
+	function checkerConfig() {
+		const minSafeVotes = scaleMinSafeVotes(checkerCount, DEFAULT_CONFIG.checkerCount, DEFAULT_CONFIG.minSafeVotes);
+		return { ...DEFAULT_CONFIG, checkerModel, checkerCount, minSafeVotes };
+	}
 
 	function updateStatus(ctx: ExtensionContext): void {
 		ctx.ui.setStatus(STATUS_KEY, ctx.ui.theme.fg(mode === "free" ? "dim" : "success", `🛡: ${mode}`));
 	}
 
 	function persistState(): void {
-		pi.appendEntry<GuardState>(STATE_ENTRY, { mode, timestamp: Date.now() });
+		pi.appendEntry<GuardState>(STATE_ENTRY, { mode, checkerModel, checkerCount, timestamp: Date.now() });
 	}
 
 	async function askUser(ctx: ExtensionContext, command: string, reason: string): Promise<GuardDecision> {
@@ -91,8 +100,9 @@ export default function (pi: ExtensionAPI) {
 			return askUser(ctx, command, policy.action === "review" ? policy.reason : "Manual review required.");
 		}
 
-		const result = await runCheckers(ctx, command, DEFAULT_CONFIG, ctx.signal);
-		if (afterVotes(result.summary, DEFAULT_CONFIG) === "run") {
+		const config = checkerConfig();
+		const result = await runCheckers(ctx, command, config, ctx.signal);
+		if (afterVotes(result.summary, config) === "run") {
 			if (ctx.hasUI) ctx.ui.notify(`✅ Bash guard: ${result.summary.safe}/${result.summary.total} checkers report safe.`, "info");
 			return { allowed: true };
 		}
@@ -106,11 +116,18 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.registerCommand("maxguard", {
-		description: "Configure the bash guard mode",
+		description: "Configure the bash guard mode and checkers",
 		handler: async (_args, ctx) => {
 			if (ctx.mode !== "tui") {
 				ctx.ui.notify("/maxguard requires TUI mode", "warning");
 				return;
+			}
+
+			const availableModels = await ctx.modelRegistry.getAvailableOfType("classifier");
+			const modelIds = availableModels.map((model) => `${model.provider}/${model.id}`);
+			if (modelIds.length > 0 && !modelIds.includes(checkerModel ?? "")) {
+				checkerModel = modelIds[0];
+				persistState();
 			}
 
 			await ctx.ui.custom((tui, theme, _keybindings, done) => {
@@ -122,13 +139,27 @@ export default function (pi: ExtensionAPI) {
 						values: ["free", "trial", "jail", "read-only"],
 					},
 				];
+				if (modelIds.length > 0) {
+					items.push({
+						id: "checkerModel",
+						label: "Checker model",
+						currentValue: checkerModel!,
+						values: modelIds,
+					});
+				}
+				items.push({
+					id: "checkerCount",
+					label: "Checkers",
+					currentValue: String(checkerCount),
+					values: CHECKER_COUNTS.map(String),
+				});
 				const container = new Container();
 				container.addChild(new DynamicBorder((text) => theme.fg("accent", text)));
 				container.addChild(new Text(theme.fg("accent", theme.bold("Bash Guard Settings"))));
 
 				const settingsList = new SettingsList(
 					items,
-					1,
+					Math.min(items.length, 8),
 					{
 						label: (text, selected) => (selected ? theme.fg("accent", text) : text),
 						value: (text, selected) => theme.fg(selected ? "accent" : "muted", text),
@@ -137,14 +168,22 @@ export default function (pi: ExtensionAPI) {
 						hint: (text) => theme.fg("dim", text),
 					},
 					(id, newValue) => {
-						if (id !== "mode") return;
-						mode = parseGuardMode(newValue, mode);
+						if (id === "mode") {
+							mode = parseGuardMode(newValue, mode);
+							updateStatus(ctx);
+						} else if (id === "checkerModel") {
+							checkerModel = newValue;
+						} else if (id === "checkerCount") {
+							checkerCount = parseCheckerCount(newValue, checkerCount);
+						}
 						persistState();
-						updateStatus(ctx);
 					},
 					() => done(undefined),
 				);
 				container.addChild(settingsList);
+				if (modelIds.length === 0) {
+					container.addChild(new Text(theme.fg("warning", "No authenticated classifier models. Use /login to enable checkers.")));
+				}
 				container.addChild(new DynamicBorder((text) => theme.fg("accent", text)));
 
 				return {
@@ -173,6 +212,8 @@ export default function (pi: ExtensionAPI) {
 			if (entry.type !== "custom" || entry.customType !== STATE_ENTRY) continue;
 			const data = entry.data as Partial<GuardState> | undefined;
 			if (typeof data?.mode === "string") mode = parseGuardMode(data.mode, mode);
+			if (typeof data?.checkerModel === "string") checkerModel = data.checkerModel;
+			if (typeof data?.checkerCount === "number") checkerCount = parseCheckerCount(String(data.checkerCount), checkerCount);
 			break;
 		}
 

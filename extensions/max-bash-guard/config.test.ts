@@ -7,7 +7,25 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { DEFAULT_CONFIG, parseGuardMode } from "./config.ts";
+import { DEFAULT_CONFIG, parseCheckerCount, parseGuardMode, scaleMinSafeVotes } from "./config.ts";
+
+describe("parseCheckerCount", () => {
+	it("accepts only 1, 3, or 5 checkers", () => {
+		assert.equal(parseCheckerCount("1", 3), 1);
+		assert.equal(parseCheckerCount("3", 1), 3);
+		assert.equal(parseCheckerCount("5", 3), 5);
+		assert.equal(parseCheckerCount("2", 3), 3);
+		assert.equal(parseCheckerCount("10", 1), 1);
+	});
+});
+
+describe("scaleMinSafeVotes", () => {
+	it("keeps the configured safe-vote ratio when checker count changes", () => {
+		assert.equal(scaleMinSafeVotes(1, 3, 2), 1);
+		assert.equal(scaleMinSafeVotes(3, 3, 2), 2);
+		assert.equal(scaleMinSafeVotes(5, 3, 2), 4);
+	});
+});
 
 describe("parseGuardMode", () => {
 	it("accepts all four guard modes", () => {

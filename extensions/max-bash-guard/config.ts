@@ -7,10 +7,13 @@
  */
 
 export type GuardMode = "free" | "trial" | "jail" | "read-only";
+export type CheckerCount = 1 | 3 | 5;
+export const CHECKER_COUNTS: readonly CheckerCount[] = [1, 3, 5];
 
 export interface MaxBashGuardConfig {
 	mode: GuardMode;
-	checkerCount: number;
+	checkerCount: CheckerCount;
+	checkerModel?: string;
 	minSafeVotes: number;
 	checkerTimeoutMs: number;
 }
@@ -19,6 +22,16 @@ export function parseGuardMode(value: string | undefined, defaultValue: GuardMod
 	if (value === undefined) return defaultValue;
 	const normalized = value.trim().toLowerCase();
 	return normalized === "free" || normalized === "trial" || normalized === "jail" || normalized === "read-only" ? normalized : defaultValue;
+}
+
+export function parseCheckerCount(value: string | undefined, defaultValue: CheckerCount): CheckerCount {
+	if (value === undefined) return defaultValue;
+	const parsed = Number(value.trim());
+	return CHECKER_COUNTS.includes(parsed as CheckerCount) ? parsed as CheckerCount : defaultValue;
+}
+
+export function scaleMinSafeVotes(checkerCount: CheckerCount, baseCount: CheckerCount, baseMinSafeVotes: number): number {
+	return Math.min(checkerCount, Math.ceil((checkerCount * baseMinSafeVotes) / baseCount));
 }
 
 export function parseIntegerEnv(value: string | undefined, defaultValue: number, min = 0): number {
@@ -31,7 +44,7 @@ export const DEFAULT_MODE = parseGuardMode(process.env.PI_MAX_BASH_GUARD_MODE, "
 
 export const DEFAULT_CONFIG: MaxBashGuardConfig = {
 	mode: DEFAULT_MODE,
-	checkerCount: parseIntegerEnv(process.env.PI_MAX_BASH_GUARD_CHECKERS, 3, 1),
+	checkerCount: parseCheckerCount(process.env.PI_MAX_BASH_GUARD_CHECKERS, 3),
 	minSafeVotes: parseIntegerEnv(process.env.PI_MAX_BASH_GUARD_MIN_SAFE_VOTES, 2, 1),
 	checkerTimeoutMs: parseIntegerEnv(process.env.PI_MAX_BASH_GUARD_CHECKER_TIMEOUT_MS, 20_000, 100),
 };

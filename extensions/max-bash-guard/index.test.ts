@@ -15,18 +15,21 @@ type ToolCallHandler = (
 	event: { toolName: string; input: { command: string } },
 	ctx: ExtensionContext,
 ) => Promise<{ block: boolean; reason: string } | void>;
+type SessionStartHandler = (event: unknown, ctx: ExtensionContext) => void;
 
 function createGuard() {
 	let command: CommandRegistration | undefined;
 	let toolCall: ToolCallHandler | undefined;
+	let sessionStart: SessionStartHandler | undefined;
 	const entries: unknown[] = [];
 	const pi = {
 		registerFlag() {},
 		registerCommand: (_name: string, registration: CommandRegistration) => {
 			command = registration;
 		},
-		on: (event: string, handler: ToolCallHandler) => {
+		on: (event: string, handler: any) => {
 			if (event === "tool_call") toolCall = handler;
+			if (event === "session_start") sessionStart = handler;
 		},
 		appendEntry: (_type: string, data: unknown) => entries.push(data),
 		getFlag: () => undefined,
@@ -35,7 +38,7 @@ function createGuard() {
 	maxBashGuard(pi);
 	assert.ok(command);
 	assert.ok(toolCall);
-	return { command, entries, toolCall };
+	return { command, entries, sessionStart, toolCall };
 }
 
 describe("/maxguard", () => {
@@ -53,6 +56,7 @@ describe("/maxguard", () => {
 			mode: "tui",
 			cwd: process.cwd(),
 			hasUI: true,
+			modelRegistry: { getAvailableOfType: async () => [] },
 			ui: {
 				notify() {},
 				setStatus: (_key: string, text: string) => statuses.push(text),
@@ -78,6 +82,101 @@ describe("/maxguard", () => {
 		assert.match(pickerContent, new RegExp(DEFAULT_CONFIG.mode));
 		assert.deepEqual(entries.map((entry) => (entry as { mode: GuardMode }).mode), nextModes);
 		assert.deepEqual(statuses, nextModes.map((mode) => `${mode === "free" ? "dim" : "success"}:🛡: ${mode}`));
+	});
+
+	it("shows only available classifier models and persists the model and checker count", async () => {
+		const { command, entries } = createGuard();
+		const models = [
+			{ provider: "typesafe", id: "jev-latest" },
+			{ provider: "cloudflare-workers-ai", id: "@cf/cloudflare/clef" },
+		];
+		let initialPickerContent = "";
+		let pickerContent = "";
+		const ctx = {
+			mode: "tui",
+			cwd: process.cwd(),
+			hasUI: true,
+			modelRegistry: {
+				getAvailableOfType: async (type: string) => {
+					assert.equal(type, "classifier");
+					return models;
+				},
+			},
+			ui: {
+				notify() {},
+				setStatus() {},
+				theme: { fg: (_color: string, text: string) => text },
+				custom: async (
+					factory: (tui: any, theme: any, keybindings: any, done: (value?: unknown) => void) => any,
+				) => new Promise((resolve) => {
+					const theme = {
+						fg: (_color: string, text: string) => text,
+						bold: (text: string) => text,
+					};
+					const component = factory({ requestRender() {} }, theme, {}, resolve);
+					initialPickerContent = component.render(100).join("\n");
+					component.handleInput("\x1b[B");
+					component.handleInput("\r");
+					component.handleInput("\x1b[B");
+					component.handleInput("\r");
+					pickerContent = component.render(100).join("\n");
+					component.handleInput("\x1b");
+				}),
+			},
+		} as unknown as ExtensionContext;
+
+		await command.handler("", ctx);
+
+		assert.match(pickerContent, /Checker model/);
+		assert.match(initialPickerContent, /typesafe\/jev-latest/);
+		assert.match(pickerContent, /cloudflare-workers-ai\/@cf\/cloudflare\/clef/);
+		assert.match(pickerContent, /Checkers/);
+		assert.ok(entries.some((entry) => (entry as { checkerModel?: string }).checkerModel === "cloudflare-workers-ai/@cf/cloudflare/clef"));
+		assert.ok(entries.some((entry) => (entry as { checkerCount?: number }).checkerCount === 5));
+	});
+
+	it("restores the checker model and count from session state", async () => {
+		const { command, sessionStart } = createGuard();
+		const models = [
+			{ provider: "typesafe", id: "jev-latest" },
+			{ provider: "cloudflare-workers-ai", id: "@cf/cloudflare/clef" },
+		];
+		let pickerContent = "";
+		const ctx = {
+			mode: "tui",
+			cwd: process.cwd(),
+			hasUI: true,
+			sessionManager: {
+				getEntries: () => [{
+					type: "custom",
+					customType: "max-bash-guard-state",
+					data: { mode: "jail", checkerModel: "cloudflare-workers-ai/@cf/cloudflare/clef", checkerCount: 1 },
+				}],
+			},
+			modelRegistry: { getAvailableOfType: async () => models },
+			ui: {
+				notify() {},
+				setStatus() {},
+				theme: { fg: (_color: string, text: string) => text },
+				custom: async (
+					factory: (tui: any, theme: any, keybindings: any, done: (value?: unknown) => void) => any,
+				) => new Promise((resolve) => {
+					const theme = {
+						fg: (_color: string, text: string) => text,
+						bold: (text: string) => text,
+					};
+					const component = factory({ requestRender() {} }, theme, {}, resolve);
+					pickerContent = component.render(100).join("\n");
+					component.handleInput("\x1b");
+				}),
+			},
+		} as unknown as ExtensionContext;
+
+		sessionStart?.({}, ctx);
+		await command.handler("", ctx);
+
+		assert.match(pickerContent, /cloudflare-workers-ai\/@cf\/cloudflare\/clef/);
+		assert.match(pickerContent, /Checkers\s+1/);
 	});
 });
 
