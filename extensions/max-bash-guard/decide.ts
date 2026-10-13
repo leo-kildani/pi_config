@@ -1,14 +1,14 @@
 /**
  * Pure decision pipeline for the max-bash-guard extension.
  *
- * afterDeterministic maps the mode and the deterministic decision to run, vote,
- * or ask. afterVotes applies the safe-vote threshold to the checker replies.
+ * decideGuardStep maps the mode, the command category, and the checker setting
+ * to a guard step. afterVotes applies the single-checker result.
  */
 
 import type { GuardMode } from "./config.ts";
 
-export type DeterministicDecision = "none" | "allow" | "review";
-export type GuardStep = "run" | "vote" | "ask";
+export type CommandCategory = "read-only" | "secret" | "write" | "unknown";
+export type GuardStep = "run" | "block" | "prompt" | "vote";
 export type CheckerReply = "safe" | "destructive" | "unknown";
 
 export interface VoteSummary {
@@ -16,18 +16,6 @@ export interface VoteSummary {
 	destructive: number;
 	unknown: number;
 	total: number;
-}
-
-export interface VotePolicy {
-	checkerCount: number;
-	minSafeVotes: number;
-}
-
-export function parseCheckerReply(text: string): CheckerReply {
-	const normalized = text.trim().toUpperCase();
-	if (normalized.startsWith("SAFE")) return "safe";
-	if (normalized.startsWith("DESTRUCTIVE")) return "destructive";
-	return "unknown";
 }
 
 export function summarizeVotes(replies: readonly CheckerReply[]): VoteSummary {
@@ -42,13 +30,16 @@ export function summarizeVotes(replies: readonly CheckerReply[]): VoteSummary {
 	return { safe, destructive, unknown, total: replies.length };
 }
 
-export function afterDeterministic(mode: GuardMode, decision: DeterministicDecision): GuardStep {
-	if (mode === "free") return "run";
-	if (decision === "review") return "ask";
-	if (mode === "trial") return "run";
-	return "vote";
+export function decideGuardStep(mode: GuardMode, category: CommandCategory, checkerEnabled: boolean): GuardStep {
+	if (mode === "off") return "run";
+	if (category === "read-only") return "run";
+	if (mode === "read-only") return "block";
+	// In on mode every caught command prompts the user. Secret and write
+	// commands never reach the checker. Only unknown commands may auto-allow.
+	if (category === "secret" || category === "write") return "prompt";
+	return checkerEnabled ? "vote" : "prompt";
 }
 
-export function afterVotes(summary: VoteSummary, policy: VotePolicy): GuardStep {
-	return summary.safe >= policy.minSafeVotes ? "run" : "ask";
+export function afterVotes(summary: VoteSummary): GuardStep {
+	return summary.safe >= 1 ? "run" : "prompt";
 }

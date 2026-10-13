@@ -1,15 +1,15 @@
 /**
- * max-bash-guard — a two-layer guard for bash tool calls.
+ * max-bash-guard — a guard for bash tool calls.
  *
- * The guard has four modes:
- *   free      run every command, no guard
- *   trial     run the deterministic policy only
- *   jail      run the deterministic policy, then configured classifier checks
- *   read-only allow inspection commands only
+ * The guard has three modes:
+ *   off        run every command, no guard
+ *   on         allow read-only commands, block secret reads, guard writes
+ *   read-only  allow read-only commands only, block the rest
  *
- * A deterministic review opens the prompt in trial and jail mode. In jail mode,
- * a deterministic pass continues to the selected classifier. The safe-vote
- * threshold scales with the checker count. Other results open the prompt.
+ * In on mode the guard runs four steps. A secret read and a destructive or
+ * write command prompt the user. A read-only command is an allow. Every other
+ * command goes to one classifier check when the checker is on. A safe reply is
+ * an allow, and every other reply prompts the user.
  *
  * The prompt shows the full command, a short reason, and an allow or deny
  * choice. The destructive sub-command appears in bold and the error color.
@@ -26,13 +26,13 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Container, type SettingItem, SettingsList, Text } from "@earendil-works/pi-tui";
 
-import { analyzeCommand } from "./analyze.ts";
+import { analyzeCommand, splitCommandChain } from "./analyze.ts";
 import { runCheckers, type CheckerRunResult } from "./checkers.ts";
-import { CHECKER_COUNTS, DEFAULT_CONFIG, parseCheckerCount, parseGuardMode, scaleMinSafeVotes, type CheckerCount, type GuardMode } from "./config.ts";
-import { afterDeterministic, afterVotes } from "./decide.ts";
-import { evaluateCommandPolicy } from "./policy.ts";
-import { promptForDecision } from "./ui.ts";
+import { DEFAULT_CONFIG, parseCheckerEnabled, parseGuardMode, type GuardMode } from "./config.ts";
+import { afterVotes, decideGuardStep, type CommandCategory } from "./decide.ts";
+import { commandReadsSecrets, evaluateCommandPolicy } from "./policy.ts";
 import { evaluateReadOnlyCommand } from "./read-only.ts";
+import { promptForDecision } from "./ui.ts";
 
 const STATE_ENTRY = "max-bash-guard-state";
 const STATUS_KEY = "max-bash-guard";
@@ -41,7 +41,7 @@ const TITLE = "🛡 Bash guard";
 interface GuardState {
 	mode: GuardMode;
 	checkerModel?: string;
-	checkerCount?: CheckerCount;
+	checkerEnabled?: boolean;
 	timestamp: number;
 }
 
@@ -50,19 +50,18 @@ type GuardDecision = { allowed: true } | { allowed: false; reason: string };
 export default function (pi: ExtensionAPI) {
 	let mode: GuardMode = DEFAULT_CONFIG.mode;
 	let checkerModel: string | undefined;
-	let checkerCount = DEFAULT_CONFIG.checkerCount;
+	let checkerEnabled = DEFAULT_CONFIG.checkerEnabled;
 
 	function checkerConfig() {
-		const minSafeVotes = scaleMinSafeVotes(checkerCount, DEFAULT_CONFIG.checkerCount, DEFAULT_CONFIG.minSafeVotes);
-		return { ...DEFAULT_CONFIG, checkerModel, checkerCount, minSafeVotes };
+		return { ...DEFAULT_CONFIG, checkerModel, checkerEnabled };
 	}
 
 	function updateStatus(ctx: ExtensionContext): void {
-		ctx.ui.setStatus(STATUS_KEY, ctx.ui.theme.fg(mode === "free" ? "dim" : "success", `🛡: ${mode}`));
+		ctx.ui.setStatus(STATUS_KEY, ctx.ui.theme.fg(mode === "off" ? "dim" : "success", `🛡: ${mode}`));
 	}
 
 	function persistState(): void {
-		pi.appendEntry<GuardState>(STATE_ENTRY, { mode, checkerModel, checkerCount, timestamp: Date.now() });
+		pi.appendEntry<GuardState>(STATE_ENTRY, { mode, checkerModel, checkerEnabled, timestamp: Date.now() });
 	}
 
 	async function askUser(ctx: ExtensionContext, command: string, reason: string): Promise<GuardDecision> {
@@ -80,43 +79,60 @@ export default function (pi: ExtensionAPI) {
 
 	function voteReason(result: CheckerRunResult): string {
 		const { safe, destructive, unknown, total } = result.summary;
-		return `Checkers did not agree the command is safe (${safe} safe, ${destructive} destructive, ${unknown} unknown of ${total}).`;
+		return `Checker did not agree the command is safe (${safe} safe, ${destructive} destructive, ${unknown} unknown of ${total}).`;
+	}
+
+	function categorize(command: string, cwd: string): CommandCategory {
+		if (commandReadsSecrets(command, cwd)) return "secret";
+		let sawUnknown = false;
+		for (const segment of splitCommandChain(command)) {
+			if (evaluateReadOnlyCommand(segment.text, cwd).action === "allow") continue;
+			if (evaluateCommandPolicy(segment.text, cwd).action === "review") return "write";
+			sawUnknown = true;
+		}
+		return sawUnknown ? "unknown" : "read-only";
+	}
+
+	function categoryReason(command: string, cwd: string, category: CommandCategory): string {
+		if (category === "secret") return "command reads a secret";
+		if (category === "write") {
+			const policy = evaluateCommandPolicy(command, cwd);
+			return policy.action === "review" ? policy.reason : "write or destructive command";
+		}
+		return "command is not proven read-only";
 	}
 
 	async function guardCommand(ctx: ExtensionContext, command: string): Promise<GuardDecision> {
-		if (mode === "free") return { allowed: true };
-		if (mode === "read-only") {
-			const decision = evaluateReadOnlyCommand(command);
-			return decision.action === "allow"
-				? { allowed: true }
-				: { allowed: false, reason: `${TITLE}: ${decision.reason}. Blocked in read-only mode.` };
-		}
+		if (mode === "off") return { allowed: true };
 
-		const policy = evaluateCommandPolicy(command, ctx.cwd);
-		const step = afterDeterministic(mode, policy.action);
+		const category = categorize(command, ctx.cwd);
+		const step = decideGuardStep(mode, category, checkerEnabled);
 
 		if (step === "run") return { allowed: true };
-		if (step === "ask") {
-			return askUser(ctx, command, policy.action === "review" ? policy.reason : "Manual review required.");
+		if (step === "block") {
+			const reason = categoryReason(command, ctx.cwd, category);
+			return { allowed: false, reason: `${TITLE}: ${reason}. Blocked in read-only mode.` };
+		}
+		if (step === "prompt") {
+			return askUser(ctx, command, categoryReason(command, ctx.cwd, category));
 		}
 
-		const config = checkerConfig();
-		const result = await runCheckers(ctx, command, config, ctx.signal);
-		if (afterVotes(result.summary, config) === "run") {
-			if (ctx.hasUI) ctx.ui.notify(`✅ Bash guard: ${result.summary.safe}/${result.summary.total} checkers report safe.`, "info");
+		const result = await runCheckers(ctx, command, checkerConfig(), ctx.signal);
+		if (afterVotes(result.summary) === "run") {
+			if (ctx.hasUI) ctx.ui.notify("✅ Bash guard: the checker reports the command is safe.", "info");
 			return { allowed: true };
 		}
 		return askUser(ctx, command, voteReason(result));
 	}
 
 	pi.registerFlag("max-guard-mode", {
-		description: "Bash guard mode: read-only, free, trial, or jail",
+		description: "Bash guard mode: off, on, or read-only",
 		type: "string",
 		default: DEFAULT_CONFIG.mode,
 	});
 
 	pi.registerCommand("maxguard", {
-		description: "Configure the bash guard mode and checkers",
+		description: "Configure the bash guard mode and checker",
 		handler: async (_args, ctx) => {
 			if (ctx.mode !== "tui") {
 				ctx.ui.notify("/maxguard requires TUI mode", "warning");
@@ -136,7 +152,7 @@ export default function (pi: ExtensionAPI) {
 						id: "mode",
 						label: "Mode",
 						currentValue: mode,
-						values: ["free", "trial", "jail", "read-only"],
+						values: ["off", "on", "read-only"],
 					},
 				];
 				if (modelIds.length > 0) {
@@ -148,10 +164,10 @@ export default function (pi: ExtensionAPI) {
 					});
 				}
 				items.push({
-					id: "checkerCount",
-					label: "Checkers",
-					currentValue: String(checkerCount),
-					values: CHECKER_COUNTS.map(String),
+					id: "checker",
+					label: "Checker",
+					currentValue: checkerEnabled ? "on" : "off",
+					values: ["on", "off"],
 				});
 				const container = new Container();
 				container.addChild(new DynamicBorder((text) => theme.fg("accent", text)));
@@ -173,8 +189,8 @@ export default function (pi: ExtensionAPI) {
 							updateStatus(ctx);
 						} else if (id === "checkerModel") {
 							checkerModel = newValue;
-						} else if (id === "checkerCount") {
-							checkerCount = parseCheckerCount(newValue, checkerCount);
+						} else if (id === "checker") {
+							checkerEnabled = parseCheckerEnabled(newValue, checkerEnabled);
 						}
 						persistState();
 					},
@@ -213,7 +229,7 @@ export default function (pi: ExtensionAPI) {
 			const data = entry.data as Partial<GuardState> | undefined;
 			if (typeof data?.mode === "string") mode = parseGuardMode(data.mode, mode);
 			if (typeof data?.checkerModel === "string") checkerModel = data.checkerModel;
-			if (typeof data?.checkerCount === "number") checkerCount = parseCheckerCount(String(data.checkerCount), checkerCount);
+			if (typeof data?.checkerEnabled === "boolean") checkerEnabled = data.checkerEnabled;
 			break;
 		}
 

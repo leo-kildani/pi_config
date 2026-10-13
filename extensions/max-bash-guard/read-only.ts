@@ -1,3 +1,5 @@
+import { commandReadsSecrets } from "./policy.ts";
+
 export type ReadOnlyDecision = { action: "allow" } | { action: "block"; reason: string };
 
 const SAFE_GIT_COMMANDS = new Set(["status", "diff", "log", "show", "rev-parse", "ls-files", "cat-file"]);
@@ -23,7 +25,8 @@ function splitCommands(command: string): string[] | null {
 
 	for (let i = 0; i < command.length; i++) {
 		const char = command[i]!;
-		if (char === "\\" || char === "\n" || char === "\r" || char === "<" || char === ">" || char === "$" || char === "`") return null;
+		if (char === "\n" || char === "\r" || char === "`") return null;
+		if (char === "$" && command[i + 1] === "(") return null;
 		if (quote) {
 			if (char === quote) quote = null;
 			current += char;
@@ -34,7 +37,7 @@ function splitCommands(command: string): string[] | null {
 			current += char;
 			continue;
 		}
-		if ("*?[]{}~".includes(char)) return null;
+		if (char === "\\" || char === ">") return null;
 		if (char === ";" || char === "|" || char === "&") {
 			const next = command[i + 1];
 			if (char === "&" && next !== "&") return null;
@@ -116,6 +119,7 @@ function safeCommand(command: string): boolean {
 
 	if (name === "git") return safeGit(words);
 	if (name === "curl") return safeCurl(words);
+	if (name === "echo" || name === "printf") return true;
 	if (name === "pwd" || name === "cat" || name === "file" || name === "stat" || name === "wc" || name === "readlink") {
 		return !args.some((arg) => arg.startsWith("-") && arg !== "-");
 	}
@@ -142,7 +146,10 @@ function safeCommand(command: string): boolean {
 	return false;
 }
 
-export function evaluateReadOnlyCommand(command: string): ReadOnlyDecision {
+export function evaluateReadOnlyCommand(command: string, cwd: string = process.cwd()): ReadOnlyDecision {
+	if (commandReadsSecrets(command, cwd)) {
+		return { action: "block", reason: "command reads a secret" };
+	}
 	const commands = splitCommands(command);
 	if (!commands || !commands.every(safeCommand)) {
 		return { action: "block", reason: "command is not proven read-only" };

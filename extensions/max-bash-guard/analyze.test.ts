@@ -72,11 +72,9 @@ describe("analyzeCommand", () => {
 		assert.deepEqual(analysis.spans, []);
 	});
 
-	it("marks the whole command when only the whole command triggers", () => {
+	it("does not mark a harmless multi-command input as destructive", () => {
 		const analysis = analyzeCommand("echo a\necho b", cwd);
-		assert.equal(analysis.destructive, true);
-		assert.equal(analysis.spans.length, 1);
-		assert.equal(analysis.spans[0]!.text, "echo a\necho b");
-		assert.ok(analysis.reasons.some((reason) => reason.includes("newline")));
+		assert.equal(analysis.destructive, false);
+		assert.deepEqual(analysis.spans, []);
 	});
 });

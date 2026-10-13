@@ -1,7 +1,7 @@
 /**
  * Probabilistic checker runner for the max-bash-guard extension.
  *
- * runCheckers sends the command to available System One classifier models.
+ * runCheckers sends the command to one available System One classifier model.
  * A timeout or an error counts as an unknown reply, which is never safe.
  */
 
@@ -107,8 +107,7 @@ export async function runCheckers(
 		return { replies: [], summary: summarizeVotes([]), errors: [error] };
 	}
 
-	const checkers = Array.from({ length: config.checkerCount }, () => checker);
-	const outcomes = await Promise.all(checkers.map((checker) => runOne(ctx, checker, command, config.checkerTimeoutMs, signal)));
-	const errors = outcomes.map((outcome) => outcome.error).filter((value): value is string => Boolean(value));
-	return { replies: outcomes.map((outcome) => outcome.reply), summary: summarizeVotes(outcomes.map((outcome) => outcome.reply)), errors };
+	const outcome = await runOne(ctx, checker, command, config.checkerTimeoutMs, signal);
+	const errors = outcome.error ? [outcome.error] : [];
+	return { replies: [outcome.reply], summary: summarizeVotes([outcome.reply]), errors };
 }

@@ -1,5 +1,5 @@
 /**
- * Unit tests for decide.ts, the pure guard mode pipeline and vote summary.
+ * Unit tests for decide.ts, the pure guard decision pipeline.
  * Runs with the Node built-in test runner:
  *   node --experimental-strip-types --test extensions/max-bash-guard/decide.test.ts
  */
@@ -7,24 +7,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { afterDeterministic, afterVotes, parseCheckerReply, summarizeVotes } from "./decide.ts";
-
-describe("parseCheckerReply", () => {
-	it("reads SAFE as safe", () => {
-		assert.equal(parseCheckerReply("SAFE"), "safe");
-		assert.equal(parseCheckerReply("  safe\n"), "safe");
-	});
-
-	it("reads DESTRUCTIVE as destructive", () => {
-		assert.equal(parseCheckerReply("DESTRUCTIVE"), "destructive");
-		assert.equal(parseCheckerReply(" destructive. "), "destructive");
-	});
-
-	it("reads anything else as unknown", () => {
-		assert.equal(parseCheckerReply("maybe"), "unknown");
-		assert.equal(parseCheckerReply(""), "unknown");
-	});
-});
+import { afterVotes, decideGuardStep, summarizeVotes } from "./decide.ts";
 
 describe("summarizeVotes", () => {
 	it("counts each reply class", () => {
@@ -39,46 +22,50 @@ describe("summarizeVotes", () => {
 	});
 });
 
-describe("afterDeterministic", () => {
-	it("runs every command in free mode", () => {
-		assert.equal(afterDeterministic("free", "none"), "run");
-		assert.equal(afterDeterministic("free", "review"), "run");
+describe("decideGuardStep", () => {
+	it("runs every command in off mode", () => {
+		for (const category of ["read-only", "secret", "write", "unknown"] as const) {
+			assert.equal(decideGuardStep("off", category, true), "run");
+			assert.equal(decideGuardStep("off", category, false), "run");
+		}
 	});
 
-	it("asks on a review in trial mode and runs the rest", () => {
-		assert.equal(afterDeterministic("trial", "review"), "ask");
-		assert.equal(afterDeterministic("trial", "none"), "run");
-		assert.equal(afterDeterministic("trial", "allow"), "run");
+	it("runs read-only commands and blocks the rest in read-only mode", () => {
+		assert.equal(decideGuardStep("read-only", "read-only", true), "run");
+		assert.equal(decideGuardStep("read-only", "secret", true), "block");
+		assert.equal(decideGuardStep("read-only", "write", true), "block");
+		assert.equal(decideGuardStep("read-only", "unknown", true), "block");
 	});
 
-	it("asks on a review in jail mode and votes on the rest", () => {
-		assert.equal(afterDeterministic("jail", "review"), "ask");
-		assert.equal(afterDeterministic("jail", "none"), "vote");
-		assert.equal(afterDeterministic("jail", "allow"), "vote");
+	it("allows read-only commands in on mode", () => {
+		assert.equal(decideGuardStep("on", "read-only", true), "run");
+		assert.equal(decideGuardStep("on", "read-only", false), "run");
+	});
+
+	it("prompts for secret reads in on mode", () => {
+		assert.equal(decideGuardStep("on", "secret", true), "prompt");
+		assert.equal(decideGuardStep("on", "secret", false), "prompt");
+	});
+
+	it("prompts for write commands in on mode", () => {
+		assert.equal(decideGuardStep("on", "write", true), "prompt");
+		assert.equal(decideGuardStep("on", "write", false), "prompt");
+	});
+
+	it("votes on unknown commands only when the checker is enabled", () => {
+		assert.equal(decideGuardStep("on", "unknown", true), "vote");
+		assert.equal(decideGuardStep("on", "unknown", false), "prompt");
 	});
 });
 
 describe("afterVotes", () => {
-	const policy = { checkerCount: 3, minSafeVotes: 2 };
-
-	it("runs when two of three checkers report safe", () => {
-		assert.equal(afterVotes(summarizeVotes(["safe", "safe", "destructive"]), policy), "run");
-		assert.equal(afterVotes(summarizeVotes(["safe", "safe", "safe"]), policy), "run");
+	it("runs when the checker reports safe", () => {
+		assert.equal(afterVotes(summarizeVotes(["safe"])), "run");
 	});
 
-	it("asks when one checker reports safe", () => {
-		assert.equal(afterVotes(summarizeVotes(["safe", "destructive", "destructive"]), policy), "ask");
-	});
-
-	it("treats unknown replies as not safe", () => {
-		assert.equal(afterVotes(summarizeVotes(["safe", "unknown", "unknown"]), policy), "ask");
-	});
-
-	it("asks when no checker reports safe", () => {
-		assert.equal(afterVotes(summarizeVotes(["destructive", "unknown", "destructive"]), policy), "ask");
-	});
-
-	it("honors a higher safe-vote threshold", () => {
-		assert.equal(afterVotes(summarizeVotes(["safe", "safe", "destructive"]), { checkerCount: 3, minSafeVotes: 3 }), "ask");
+	it("prompts when the checker does not report safe", () => {
+		assert.equal(afterVotes(summarizeVotes(["destructive"])), "prompt");
+		assert.equal(afterVotes(summarizeVotes(["unknown"])), "prompt");
+		assert.equal(afterVotes(summarizeVotes([])), "prompt");
 	});
 });

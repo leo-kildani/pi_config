@@ -17,7 +17,7 @@ type ToolCallHandler = (
 ) => Promise<{ block: boolean; reason: string } | void>;
 type SessionStartHandler = (event: unknown, ctx: ExtensionContext) => void;
 
-function createGuard() {
+function createGuard(flag?: string) {
 	let command: CommandRegistration | undefined;
 	let toolCall: ToolCallHandler | undefined;
 	let sessionStart: SessionStartHandler | undefined;
@@ -32,7 +32,7 @@ function createGuard() {
 			if (event === "session_start") sessionStart = handler;
 		},
 		appendEntry: (_type: string, data: unknown) => entries.push(data),
-		getFlag: () => undefined,
+		getFlag: () => flag,
 	} as unknown as ExtensionAPI;
 
 	maxBashGuard(pi);
@@ -41,50 +41,73 @@ function createGuard() {
 	return { command, entries, sessionStart, toolCall };
 }
 
+function startSession(sessionStart: SessionStartHandler | undefined, ctx: ExtensionContext, state?: Record<string, unknown>): void {
+	assert.ok(sessionStart);
+	(ctx as any).sessionManager = {
+		getEntries: () => (state ? [{ type: "custom", customType: "max-bash-guard-state", data: state }] : []),
+	};
+	sessionStart({}, ctx);
+}
+
+function createTuiContext(overrides: {
+	models?: unknown[];
+	renderWidth?: number;
+	afterRender?: (component: any) => void;
+} = {}) {
+	const models = overrides.models ?? [];
+	const statuses: string[] = [];
+	const ctx = {
+		mode: "tui",
+		cwd: process.cwd(),
+		hasUI: true,
+		modelRegistry: { getAvailableOfType: async () => models },
+		ui: {
+			notify() {},
+			setStatus: (_key: string, text: string) => statuses.push(text),
+			theme: { fg: (color: string, text: string) => `${color}:${text}` },
+			custom: async (
+				factory: (tui: any, theme: any, keybindings: any, done: (value?: unknown) => void) => any,
+			) => new Promise((resolve) => {
+				const theme = {
+					fg: (color: string, text: string) => `${color}:${text}`,
+					bold: (text: string) => text,
+				};
+				const component = factory({ requestRender() {} }, theme, {}, resolve);
+				overrides.afterRender?.(component);
+				component.render(overrides.renderWidth ?? 80).join("\n");
+				component.handleInput("\x1b");
+			}),
+		},
+	} as unknown as ExtensionContext;
+	return { ctx, statuses };
+}
+
 describe("/maxguard", () => {
 	it("shows the mode setting, cycles through modes, and persists each change", async () => {
 		const { command, entries } = createGuard();
-		const modes: GuardMode[] = ["free", "trial", "jail", "read-only"];
+		const modes: GuardMode[] = ["off", "on", "read-only"];
 		const currentIndex = modes.indexOf(DEFAULT_CONFIG.mode);
 		const nextModes = Array.from(
 			{ length: modes.length },
 			(_, step) => modes[(currentIndex + step + 1) % modes.length]!,
 		);
-		const statuses: string[] = [];
 		let pickerContent = "";
-		const ctx = {
-			mode: "tui",
-			cwd: process.cwd(),
-			hasUI: true,
-			modelRegistry: { getAvailableOfType: async () => [] },
-			ui: {
-				notify() {},
-				setStatus: (_key: string, text: string) => statuses.push(text),
-				theme: { fg: (color: string, text: string) => `${color}:${text}` },
-				custom: async (
-					factory: (tui: any, theme: any, keybindings: any, done: (value?: unknown) => void) => any,
-				) => new Promise((resolve) => {
-					const theme = {
-						fg: (color: string, text: string) => `${color}:${text}`,
-						bold: (text: string) => text,
-					};
-					const component = factory({ requestRender() {} }, theme, {}, resolve);
-					pickerContent = component.render(80).join("\n");
-					for (let index = 0; index < modes.length; index++) component.handleInput("\r");
-					component.handleInput("\x1b");
-				}),
+		const { ctx, statuses } = createTuiContext({
+			afterRender: (component) => {
+				pickerContent = component.render(80).join("\n");
+				for (let index = 0; index < modes.length; index++) component.handleInput("\r");
 			},
-		} as unknown as ExtensionContext;
+		});
 
 		await command.handler("", ctx);
 
 		assert.match(pickerContent, /Mode/);
 		assert.match(pickerContent, new RegExp(DEFAULT_CONFIG.mode));
 		assert.deepEqual(entries.map((entry) => (entry as { mode: GuardMode }).mode), nextModes);
-		assert.deepEqual(statuses, nextModes.map((mode) => `${mode === "free" ? "dim" : "success"}:🛡: ${mode}`));
+		assert.deepEqual(statuses, nextModes.map((mode) => `${mode === "off" ? "dim" : "success"}:🛡: ${mode}`));
 	});
 
-	it("shows only available classifier models and persists the model and checker count", async () => {
+	it("shows only available classifier models and persists the model and checker setting", async () => {
 		const { command, entries } = createGuard();
 		const models = [
 			{ provider: "typesafe", id: "jev-latest" },
@@ -92,130 +115,186 @@ describe("/maxguard", () => {
 		];
 		let initialPickerContent = "";
 		let pickerContent = "";
-		const ctx = {
-			mode: "tui",
-			cwd: process.cwd(),
-			hasUI: true,
-			modelRegistry: {
-				getAvailableOfType: async (type: string) => {
-					assert.equal(type, "classifier");
-					return models;
-				},
+		const { ctx } = createTuiContext({
+			models,
+			renderWidth: 100,
+			afterRender: (component) => {
+				initialPickerContent = component.render(100).join("\n");
+				component.handleInput("\x1b[B");
+				component.handleInput("\r");
+				component.handleInput("\x1b[B");
+				component.handleInput("\r");
+				pickerContent = component.render(100).join("\n");
 			},
-			ui: {
-				notify() {},
-				setStatus() {},
-				theme: { fg: (_color: string, text: string) => text },
-				custom: async (
-					factory: (tui: any, theme: any, keybindings: any, done: (value?: unknown) => void) => any,
-				) => new Promise((resolve) => {
-					const theme = {
-						fg: (_color: string, text: string) => text,
-						bold: (text: string) => text,
-					};
-					const component = factory({ requestRender() {} }, theme, {}, resolve);
-					initialPickerContent = component.render(100).join("\n");
-					component.handleInput("\x1b[B");
-					component.handleInput("\r");
-					component.handleInput("\x1b[B");
-					component.handleInput("\r");
-					pickerContent = component.render(100).join("\n");
-					component.handleInput("\x1b");
-				}),
-			},
-		} as unknown as ExtensionContext;
+		});
 
 		await command.handler("", ctx);
 
 		assert.match(pickerContent, /Checker model/);
 		assert.match(initialPickerContent, /typesafe\/jev-latest/);
 		assert.match(pickerContent, /cloudflare-workers-ai\/@cf\/cloudflare\/clef/);
-		assert.match(pickerContent, /Checkers/);
+		assert.match(pickerContent, /Checker.*off/);
 		assert.ok(entries.some((entry) => (entry as { checkerModel?: string }).checkerModel === "cloudflare-workers-ai/@cf/cloudflare/clef"));
-		assert.ok(entries.some((entry) => (entry as { checkerCount?: number }).checkerCount === 5));
+		assert.ok(entries.some((entry) => (entry as { checkerEnabled?: boolean }).checkerEnabled === false));
 	});
 
-	it("restores the checker model and count from session state", async () => {
+	it("restores the checker model and setting from session state", async () => {
 		const { command, sessionStart } = createGuard();
 		const models = [
 			{ provider: "typesafe", id: "jev-latest" },
 			{ provider: "cloudflare-workers-ai", id: "@cf/cloudflare/clef" },
 		];
 		let pickerContent = "";
-		const ctx = {
-			mode: "tui",
-			cwd: process.cwd(),
-			hasUI: true,
-			sessionManager: {
-				getEntries: () => [{
-					type: "custom",
-					customType: "max-bash-guard-state",
-					data: { mode: "jail", checkerModel: "cloudflare-workers-ai/@cf/cloudflare/clef", checkerCount: 1 },
-				}],
+		const { ctx } = createTuiContext({
+			models,
+			renderWidth: 100,
+			afterRender: (component) => {
+				pickerContent = component.render(100).join("\n");
 			},
-			modelRegistry: { getAvailableOfType: async () => models },
-			ui: {
-				notify() {},
-				setStatus() {},
-				theme: { fg: (_color: string, text: string) => text },
-				custom: async (
-					factory: (tui: any, theme: any, keybindings: any, done: (value?: unknown) => void) => any,
-				) => new Promise((resolve) => {
-					const theme = {
-						fg: (_color: string, text: string) => text,
-						bold: (text: string) => text,
-					};
-					const component = factory({ requestRender() {} }, theme, {}, resolve);
-					pickerContent = component.render(100).join("\n");
-					component.handleInput("\x1b");
-				}),
-			},
-		} as unknown as ExtensionContext;
+		});
 
-		sessionStart?.({}, ctx);
+		startSession(sessionStart, ctx, { mode: "jail", checkerModel: "cloudflare-workers-ai/@cf/cloudflare/clef", checkerEnabled: false });
 		await command.handler("", ctx);
 
 		assert.match(pickerContent, /cloudflare-workers-ai\/@cf\/cloudflare\/clef/);
-		assert.match(pickerContent, /Checkers\s+1/);
+		assert.match(pickerContent, /Checker.*off/);
+	});
+});
+
+function createToolContext(options: {
+	models?: unknown[];
+	classifyReply?: () => Promise<unknown>;
+	confirm?: boolean;
+} = {}) {
+	let checkerCalls = 0;
+	let promptCalls = 0;
+	const models = options.models ?? [{ provider: "test", id: "checker" }];
+	const ctx = {
+		cwd: process.cwd(),
+		signal: new AbortController().signal,
+		hasUI: true,
+		mode: "print",
+		modelRegistry: {
+			getAvailableOfType: async () => models,
+			classify: async () => {
+				checkerCalls++;
+				return (options.classifyReply ?? (async () => safeResponse()))();
+			},
+		},
+		ui: {
+			setStatus() {},
+			theme: { fg: (_color: string, text: string) => text },
+			notify() {},
+			confirm: async () => {
+				promptCalls++;
+				return options.confirm ?? false;
+			},
+		},
+	} as unknown as ExtensionContext;
+	return { ctx, counts: () => ({ checkerCalls, promptCalls }) };
+}
+
+function safeResponse() {
+	return { stopReason: "stop", answers: { safety: { type: "choice", choice: "SAFE" } } };
+}
+
+function errorResponse() {
+	return { stopReason: "error", errorMessage: "boom", answers: {} };
+}
+
+describe("off mode tool calls", () => {
+	it("allows every command without a checker call or prompt", async () => {
+		const { toolCall, sessionStart } = createGuard();
+		const { ctx, counts } = createToolContext();
+		startSession(sessionStart, ctx, { mode: "off", checkerEnabled: true });
+
+		const decision = await toolCall({ toolName: "bash", input: { command: "rm -rf /" } }, ctx);
+
+		assert.equal(decision, undefined);
+		assert.deepEqual(counts(), { checkerCalls: 0, promptCalls: 0 });
 	});
 });
 
 describe("read-only mode tool calls", () => {
 	it("blocks writes without prompts or checker calls", async () => {
-		const { toolCall } = createGuard();
-		let checkerCalls = 0;
-		let promptCalls = 0;
-		const ctx = {
-			cwd: process.cwd(),
-			signal: new AbortController().signal,
-			hasUI: true,
-			mode: "tui",
-			model: { provider: "test", id: "test" },
-			scopedModels: [],
-			modelRegistry: {
-				hasConfiguredAuth: () => {
-					checkerCalls++;
-					return true;
-				},
-				complete: async () => ({ stopReason: "stop", content: [{ type: "text", text: "SAFE" }] }),
-			},
-			ui: {
-				setStatus: () => {},
-				theme: { fg: (_color: string, text: string) => text },
-				notify: () => {},
-				confirm: async () => {
-					promptCalls++;
-					return true;
-				},
-			},
-		} as unknown as ExtensionContext;
+		const { toolCall, sessionStart } = createGuard();
+		const { ctx, counts } = createToolContext();
+		startSession(sessionStart, ctx, { mode: "read-only", checkerEnabled: true });
 
 		const readDecision = await toolCall({ toolName: "bash", input: { command: "cat README.md" } }, ctx);
 		const decision = await toolCall({ toolName: "bash", input: { command: "touch AGENTS.md" } }, ctx);
 
 		assert.equal(readDecision, undefined);
 		assert.equal(decision?.block, true);
-		assert.equal(checkerCalls, 0);
-		assert.equal(promptCalls, 0);
+		assert.deepEqual(counts(), { checkerCalls: 0, promptCalls: 0 });
+	});
+});
+
+describe("on mode tool calls", () => {
+	it("allows read-only commands without a checker call", async () => {
+		const { toolCall, sessionStart } = createGuard();
+		const { ctx, counts } = createToolContext();
+		startSession(sessionStart, ctx, { mode: "on", checkerEnabled: true });
+
+		const decision = await toolCall({ toolName: "bash", input: { command: "git status && cat *.md" } }, ctx);
+
+		assert.equal(decision, undefined);
+		assert.deepEqual(counts(), { checkerCalls: 0, promptCalls: 0 });
+	});
+
+	it("prompts for secret reads in on mode", async () => {
+		const { toolCall, sessionStart } = createGuard();
+		const { ctx, counts } = createToolContext({ confirm: true });
+		startSession(sessionStart, ctx, { mode: "on", checkerEnabled: true });
+
+		const decision = await toolCall({ toolName: "bash", input: { command: "cat .env" } }, ctx);
+
+		assert.equal(decision, undefined);
+		assert.deepEqual(counts(), { checkerCalls: 0, promptCalls: 1 });
+	});
+
+	it("prompts for write commands without a checker call", async () => {
+		const { toolCall, sessionStart } = createGuard();
+		const { ctx, counts } = createToolContext({ confirm: false });
+		startSession(sessionStart, ctx, { mode: "on", checkerEnabled: true });
+
+		const decision = await toolCall({ toolName: "bash", input: { command: "touch marker" } }, ctx);
+
+		assert.equal(decision?.block, true);
+		assert.match(decision!.reason, /User denied/);
+		assert.deepEqual(counts(), { checkerCalls: 0, promptCalls: 1 });
+	});
+
+	it("prompts for unknown commands when the checker is off", async () => {
+		const { toolCall, sessionStart } = createGuard();
+		const { ctx, counts } = createToolContext({ confirm: false });
+		startSession(sessionStart, ctx, { mode: "on", checkerEnabled: false });
+
+		const decision = await toolCall({ toolName: "bash", input: { command: "python script.py" } }, ctx);
+
+		assert.equal(decision?.block, true);
+		assert.deepEqual(counts(), { checkerCalls: 0, promptCalls: 1 });
+	});
+
+	it("allows an unknown command when the checker reports safe", async () => {
+		const { toolCall, sessionStart } = createGuard();
+		const { ctx, counts } = createToolContext({ classifyReply: async () => safeResponse() });
+		startSession(sessionStart, ctx, { mode: "on", checkerEnabled: true });
+
+		const decision = await toolCall({ toolName: "bash", input: { command: "python script.py" } }, ctx);
+
+		assert.equal(decision, undefined);
+		assert.deepEqual(counts(), { checkerCalls: 1, promptCalls: 0 });
+	});
+
+	it("prompts when the checker errors", async () => {
+		const { toolCall, sessionStart } = createGuard();
+		const { ctx, counts } = createToolContext({ classifyReply: async () => errorResponse(), confirm: false });
+		startSession(sessionStart, ctx, { mode: "on", checkerEnabled: true });
+
+		const decision = await toolCall({ toolName: "bash", input: { command: "python script.py" } }, ctx);
+
+		assert.equal(decision?.block, true);
+		assert.deepEqual(counts(), { checkerCalls: 1, promptCalls: 1 });
 	});
 });

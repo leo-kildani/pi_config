@@ -40,18 +40,18 @@ function classifierReply(choice: string) {
 }
 
 describe("runCheckers", () => {
-	it("uses the first available classifier by default", async () => {
+	it("uses the first available classifier and makes one request", async () => {
 		const models = [
 			{ provider: "one", id: "first" },
 			{ provider: "two", id: "second" },
-			{ provider: "three", id: "third" },
 		];
 		const { ctx, calls } = createContext(models, async () => classifierReply("SAFE"));
 
 		const result = await runCheckers(ctx, "rm -rf /tmp/scratch", DEFAULT_CONFIG);
 
-		assert.deepEqual(result.replies, ["safe", "safe", "safe"]);
-		assert.deepEqual(calls.map((call) => call.model), [models[0], models[0], models[0]]);
+		assert.deepEqual(result.replies, ["safe"]);
+		assert.equal(calls.length, 1);
+		assert.deepEqual(calls.map((call) => call.model), [models[0]]);
 		const request = calls[0]!.context as {
 			state: { command: string };
 			questions: { safety: { type: string; criteria: Record<string, string> } };
@@ -61,7 +61,7 @@ describe("runCheckers", () => {
 		assert.deepEqual(Object.keys(request.questions.safety.criteria), ["SAFE", "DESTRUCTIVE"]);
 	});
 
-	it("uses only the selected classifier for each checker vote", async () => {
+	it("uses the selected classifier", async () => {
 		const models = [
 			{ provider: "one", id: "first" },
 			{ provider: "two", id: "second" },
@@ -70,11 +70,10 @@ describe("runCheckers", () => {
 
 		await runCheckers(ctx, "touch /tmp/file", {
 			...DEFAULT_CONFIG,
-			checkerCount: 3,
 			checkerModel: "two/second",
 		});
 
-		assert.deepEqual(calls.map((call) => call.model), [models[1], models[1], models[1]]);
+		assert.deepEqual(calls.map((call) => call.model), [models[1]]);
 	});
 
 	it("fails closed when the selected classifier is no longer available", async () => {
@@ -83,7 +82,6 @@ describe("runCheckers", () => {
 
 		const result = await runCheckers(ctx, "touch /tmp/file", {
 			...DEFAULT_CONFIG,
-			checkerCount: 1,
 			checkerModel: "missing/model",
 		});
 
@@ -92,19 +90,16 @@ describe("runCheckers", () => {
 		assert.equal(calls.length, 0);
 	});
 
-	it("treats unrecognized classifier choices as unknown votes", async () => {
+	it("treats an unrecognized classifier choice as unknown", async () => {
 		const { ctx } = createContext([{ provider: "one", id: "first" }], async () => classifierReply("SAFE-ish"));
 
-		const result = await runCheckers(ctx, "touch /tmp/file", {
-			...DEFAULT_CONFIG,
-			checkerCount: 1,
-		});
+		const result = await runCheckers(ctx, "touch /tmp/file", DEFAULT_CONFIG);
 
 		assert.deepEqual(result.replies, ["unknown"]);
 		assert.deepEqual(result.errors, ["Unexpected checker reply for one/first"]);
 	});
 
-	it("counts classifier API failures as unknown votes", async () => {
+	it("counts a classifier API failure as unknown", async () => {
 		const { ctx } = createContext([{ provider: "one", id: "first" }], async () => ({
 			provider: "one",
 			model: "first",
@@ -113,10 +108,7 @@ describe("runCheckers", () => {
 			errorMessage: "service unavailable",
 		}));
 
-		const result = await runCheckers(ctx, "touch /tmp/file", {
-			...DEFAULT_CONFIG,
-			checkerCount: 1,
-		});
+		const result = await runCheckers(ctx, "touch /tmp/file", DEFAULT_CONFIG);
 
 		assert.deepEqual(result.replies, ["unknown"]);
 		assert.equal(result.summary.unknown, 1);

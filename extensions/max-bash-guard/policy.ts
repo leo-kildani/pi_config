@@ -1,9 +1,16 @@
-import { execFileSync } from "node:child_process";
+/**
+ * Deterministic policy for the max-bash-guard extension.
+ *
+ * The policy flags destructive actions, write actions, and secret disclosure.
+ * It does not flag chaining, input redirection, command substitution, or
+ * environment expansion by themselves. commandReadsSecrets reports path and
+ * environment secret access for the read-only and on modes.
+ */
+
 import path from "node:path";
 
 export type PolicyDecision =
 	| { action: "none" }
-	| { action: "allow"; reason: string }
 	| { action: "review"; reason: string };
 
 const CLOUD_MUTATION_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
@@ -19,12 +26,22 @@ const SENSITIVE_COMMAND_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
 	{ pattern: /curl\b.*\|\s*(sh|bash)|wget\b.*\|\s*(sh|bash)/i, label: "remote script execution" },
 	{ pattern: /\bchmod\s+(-[^\s]*\s+)?777\b/i, label: "world-writable permissions" },
 	{ pattern: /\brm\s+(-[^\s]*r[^\s]*f|-rf|-fr)\s+(["']?)(\/|~|\$\{?HOME\}?|\$\{?PWD\}?)/i, label: "recursive force delete of a broad path" },
-	{ pattern: /^\s*(env|printenv|set)\b/i, label: "environment variable disclosure" },
+];
+
+const ENV_DISCLOSURE_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
+	{ pattern: /\bprintenv\b/i, label: "environment variable disclosure" },
+	{ pattern: /(^|[\s;&|(])env(\s|$|\))/i, label: "environment variable disclosure" },
+	{ pattern: /(^|[\s;&|])set(\s|$)/i, label: "environment variable disclosure" },
 	{ pattern: /^\s*jq\s+.*\benv\b/i, label: "environment variable disclosure through jq" },
 ];
 
 const MUTATION_COMMAND_PATTERN = /^\s*(rm|mv|cp|mkdir|touch|truncate|ln|chmod|chown|install)\b/i;
+const WRITE_COMMAND_PATTERN = /^\s*(rm|mv|cp|mkdir|touch|truncate|ln|chmod|chown|install|tee|dd|patch|rsync|scp)\b/i;
+const GIT_WRITE_PATTERN = /^\s*git\s+(add|commit|push|pull|fetch|reset|checkout|switch|restore|clean|rm|mv|stash|merge|rebase|cherry-pick|revert|tag)\b/i;
+const PACKAGE_WRITE_PATTERN = /^\s*(npm|pnpm|yarn|bun|pip|pip3|poetry|cargo|go)\s+(install|add|remove|uninstall|update|upgrade|publish|ci)\b/i;
+const SED_INPLACE_PATTERN = /\bsed\s+(-[^\s]*i|--in-place)/i;
 const RECURSIVE_RM_PATTERN = /^\s*rm\s+-[^\s]*r/i;
+const SECRET_ENV_NAME = /(SECRET|TOKEN|PASSWORD|PASSWD|CREDENTIAL|API[_-]?KEY|PRIVATE[_-]?KEY|ACCESS[_-]?KEY|AWS_|GITHUB|NPM_|OPENAI|ANTHROPIC)/i;
 
 const SENSITIVE_PATH_PARTS = new Set([
 	".aws",
@@ -62,23 +79,10 @@ const SENSITIVE_BASENAMES = new Set([
 ]);
 
 const SENSITIVE_EXTENSIONS = new Set([".key", ".pem", ".p12", ".pfx"]);
-const SHELL_EXPANSION_PATTERN = /\$\{?[A-Za-z_][A-Za-z0-9_]*\}?|\$\{|\$\(|<\(|[?*\[\]{}]/;
-const INPUT_REDIRECT_PATTERN = /(^|[^<])<(?!<)/;
 
 export function normalizeCommand(command: string): string {
-	// Collapse shell line-continuations only. Unescaped newlines are command
-	// separators and must be evaluated before this normalization is used.
+	// Collapse shell line-continuations and stray newlines for path extraction.
 	return command.trim().replace(/\\\n\s*/g, "").replace(/\n\s*/g, " ");
-}
-
-function hasUnescapedNewline(command: string): boolean {
-	for (let i = 0; i < command.length; i++) {
-		if (command[i] !== "\n") continue;
-		let slashes = 0;
-		for (let j = i - 1; j >= 0 && command[j] === "\\"; j--) slashes++;
-		if (slashes % 2 === 0) return true;
-	}
-	return false;
 }
 
 function shellWords(command: string): string[] {
@@ -116,10 +120,6 @@ function shellWords(command: string): string[] {
 	return words;
 }
 
-function hasShellExpansion(value: string): boolean {
-	return SHELL_EXPANSION_PATTERN.test(value);
-}
-
 function isLikelyPathArg(arg: string): boolean {
 	if (!arg || arg === "--" || arg.startsWith("-")) return false;
 	if (/^(https?:|git@|ssh:)/i.test(arg)) return false;
@@ -129,7 +129,7 @@ function isLikelyPathArg(arg: string): boolean {
 	return false;
 }
 
-function extractPathArgs(command: string): string[] {
+export function extractPathArgs(command: string): string[] {
 	const normalized = normalizeCommand(command);
 	const words = shellWords(normalized);
 	const positional = words.slice(1).filter((arg) => arg !== "--" && !arg.startsWith("-") && !/^(https?:|git@|ssh:)/i.test(arg));
@@ -137,7 +137,7 @@ function extractPathArgs(command: string): string[] {
 	return positional.filter(isLikelyPathArg);
 }
 
-function resolveCommandPath(arg: string, cwd: string): string {
+export function resolveCommandPath(arg: string, cwd: string): string {
 	const withoutQuotes = arg.replace(/^[']|[']$/g, "").replace(/^[\"]|[\"]$/g, "");
 	const expanded = withoutQuotes === "~" || withoutQuotes.startsWith("~/")
 		? path.join(process.env.HOME ?? "", withoutQuotes.slice(1))
@@ -154,7 +154,7 @@ function isInTmp(filePath: string): boolean {
 	return isInside(path.resolve("/tmp"), filePath) || isInside(path.resolve("/private/tmp"), filePath);
 }
 
-function sensitivePathReason(filePath: string, cwd: string): string | null {
+export function sensitivePathReason(filePath: string, cwd: string): string | null {
 	const relToHome = process.env.HOME ? path.relative(process.env.HOME, filePath) : "";
 	const relToCwd = path.relative(cwd, filePath);
 	const candidates = [relToHome, relToCwd, filePath].map((p) => p.split(path.sep).join("/"));
@@ -173,49 +173,49 @@ function sensitivePathReason(filePath: string, cwd: string): string | null {
 	return null;
 }
 
-function trackedPathsFor(cwd: string, filePaths: string[]): { insideGitWorkTree: boolean; tracked: Set<string> } {
-	const rels = filePaths
-		.filter((filePath) => isInside(cwd, filePath))
-		.map((filePath) => path.relative(cwd, filePath).split(path.sep).join("/"))
-		.filter((rel) => rel && rel !== ".");
-	if (rels.length === 0) return { insideGitWorkTree: true, tracked: new Set() };
-
-	try {
-		execFileSync("git", ["-C", cwd, "rev-parse", "--is-inside-work-tree"], { stdio: "ignore", timeout: 1000 });
-	} catch {
-		return { insideGitWorkTree: false, tracked: new Set() };
+function disclosesSecretEnv(command: string): boolean {
+	const pattern = /\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?/g;
+	let match: RegExpExecArray | null;
+	while ((match = pattern.exec(command)) !== null) {
+		if (SECRET_ENV_NAME.test(match[1]!)) return true;
 	}
-
-	try {
-		const output = execFileSync("git", ["-C", cwd, "ls-files", "-z", "--", ...rels], {
-			encoding: "utf8",
-			maxBuffer: 1024 * 1024,
-			timeout: 2000,
-		});
-		return { insideGitWorkTree: true, tracked: new Set(output.split("\0").filter(Boolean)) };
-	} catch {
-		return { insideGitWorkTree: true, tracked: new Set() };
-	}
+	return false;
 }
 
-function hasTrackedMatch(cwd: string, filePath: string, tracked: ReadonlySet<string>): boolean {
-	const rel = path.relative(cwd, filePath).split(path.sep).join("/");
-	return tracked.has(rel) || Array.from(tracked).some((trackedPath) => trackedPath.startsWith(`${rel}/`));
+function hasOutputRedirect(command: string): boolean {
+	let quote: "'" | '"' | null = null;
+	for (const char of command) {
+		if (quote) {
+			if (char === quote) quote = null;
+			continue;
+		}
+		if (char === "'" || char === '"') {
+			quote = char;
+			continue;
+		}
+		if (char === ">") return true;
+	}
+	return false;
 }
 
-function isFreelyMutablePath(cwd: string, filePath: string, git: { insideGitWorkTree: boolean; tracked: ReadonlySet<string> }): boolean {
-	if (isInTmp(filePath)) return true;
-	if (!git.insideGitWorkTree) return false;
-	return isInside(cwd, filePath) && !hasTrackedMatch(cwd, filePath, git.tracked);
+/**
+ * Return true when a command reads a sensitive path or discloses environment
+ * secrets. The read-only and on modes block a command that reads secrets.
+ */
+export function commandReadsSecrets(command: string, cwd: string): boolean {
+	const normalized = normalizeCommand(command);
+
+	for (const { pattern } of ENV_DISCLOSURE_PATTERNS) {
+		if (pattern.test(normalized)) return true;
+	}
+	if (disclosesSecretEnv(command)) return true;
+
+	const resolvedPaths = extractPathArgs(normalized).map((arg) => resolveCommandPath(arg, cwd));
+	return resolvedPaths.some((filePath) => sensitivePathReason(filePath, cwd) !== null);
 }
 
 export function evaluateCommandPolicy(command: string, cwd: string): PolicyDecision {
 	const normalized = normalizeCommand(command);
-
-	if (hasUnescapedNewline(command)) return { action: "review", reason: "multiple shell commands separated by newline" };
-	if (INPUT_REDIRECT_PATTERN.test(command)) return { action: "review", reason: "shell input redirection or process substitution" };
-	if (/\$\(|<\(/.test(command)) return { action: "review", reason: "shell substitution" };
-	if (/\$\{?[A-Za-z_][A-Za-z0-9_]*\}?/.test(command)) return { action: "review", reason: "environment variable expansion" };
 
 	for (const { pattern, label } of CLOUD_MUTATION_PATTERNS) {
 		if (pattern.test(normalized)) return { action: "review", reason: label };
@@ -224,10 +224,7 @@ export function evaluateCommandPolicy(command: string, cwd: string): PolicyDecis
 		if (pattern.test(normalized)) return { action: "review", reason: label };
 	}
 
-	const pathArgs = extractPathArgs(normalized);
-	if (pathArgs.some(hasShellExpansion)) return { action: "review", reason: "shell-expanded path target" };
-
-	const resolvedPaths = pathArgs.map((arg) => resolveCommandPath(arg, cwd));
+	const resolvedPaths = extractPathArgs(normalized).map((arg) => resolveCommandPath(arg, cwd));
 
 	for (const filePath of resolvedPaths) {
 		const reason = sensitivePathReason(filePath, cwd);
@@ -241,10 +238,16 @@ export function evaluateCommandPolicy(command: string, cwd: string): PolicyDecis
 		if (RECURSIVE_RM_PATTERN.test(normalized) && resolvedPaths.some((filePath) => filePath === cwd || isInside(filePath, cwd))) {
 			return { action: "review", reason: "recursive delete of current working directory" };
 		}
-		const git = trackedPathsFor(cwd, resolvedPaths);
-		if (resolvedPaths.every((filePath) => isFreelyMutablePath(cwd, filePath, git))) {
-			return { action: "allow", reason: "mutation is limited to /tmp or files not tracked by git" };
-		}
+	}
+
+	if (
+		WRITE_COMMAND_PATTERN.test(normalized) ||
+		GIT_WRITE_PATTERN.test(normalized) ||
+		PACKAGE_WRITE_PATTERN.test(normalized) ||
+		SED_INPLACE_PATTERN.test(normalized) ||
+		hasOutputRedirect(command)
+	) {
+		return { action: "review", reason: "write or destructive command" };
 	}
 
 	return { action: "none" };

@@ -7,46 +7,49 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { DEFAULT_CONFIG, parseCheckerCount, parseGuardMode, scaleMinSafeVotes } from "./config.ts";
+import { DEFAULT_CONFIG, parseCheckerEnabled, parseGuardMode } from "./config.ts";
 
-describe("parseCheckerCount", () => {
-	it("accepts only 1, 3, or 5 checkers", () => {
-		assert.equal(parseCheckerCount("1", 3), 1);
-		assert.equal(parseCheckerCount("3", 1), 3);
-		assert.equal(parseCheckerCount("5", 3), 5);
-		assert.equal(parseCheckerCount("2", 3), 3);
-		assert.equal(parseCheckerCount("10", 1), 1);
+describe("parseCheckerEnabled", () => {
+	it("accepts the on and off spellings", () => {
+		assert.equal(parseCheckerEnabled("on", false), true);
+		assert.equal(parseCheckerEnabled(" true ", false), true);
+		assert.equal(parseCheckerEnabled("1", false), true);
+		assert.equal(parseCheckerEnabled("off", true), false);
+		assert.equal(parseCheckerEnabled("FALSE", true), false);
+		assert.equal(parseCheckerEnabled("0", true), false);
 	});
-});
 
-describe("scaleMinSafeVotes", () => {
-	it("keeps the configured safe-vote ratio when checker count changes", () => {
-		assert.equal(scaleMinSafeVotes(1, 3, 2), 1);
-		assert.equal(scaleMinSafeVotes(3, 3, 2), 2);
-		assert.equal(scaleMinSafeVotes(5, 3, 2), 4);
+	it("falls back when the value is undefined or unknown", () => {
+		assert.equal(parseCheckerEnabled(undefined, true), true);
+		assert.equal(parseCheckerEnabled("maybe", false), false);
 	});
 });
 
 describe("parseGuardMode", () => {
-	it("accepts all four guard modes", () => {
-		assert.equal(parseGuardMode("free", "jail"), "free");
-		assert.equal(parseGuardMode("trial", "free"), "trial");
-		assert.equal(parseGuardMode("jail", "free"), "jail");
-		assert.equal(parseGuardMode("read-only", "free"), "read-only");
+	it("accepts the three guard modes", () => {
+		assert.equal(parseGuardMode("off", "on"), "off");
+		assert.equal(parseGuardMode("on", "off"), "on");
+		assert.equal(parseGuardMode("read-only", "on"), "read-only");
+	});
+
+	it("maps the legacy modes", () => {
+		assert.equal(parseGuardMode("free", "read-only"), "off");
+		assert.equal(parseGuardMode("trial", "read-only"), "on");
+		assert.equal(parseGuardMode("jail", "read-only"), "on");
 	});
 
 	it("trims and lowercases the value", () => {
-		assert.equal(parseGuardMode("  JAIL ", "free"), "jail");
-		assert.equal(parseGuardMode("Trial", "free"), "trial");
-		assert.equal(parseGuardMode("  READ-ONLY ", "free"), "read-only");
+		assert.equal(parseGuardMode("  ON ", "off"), "on");
+		assert.equal(parseGuardMode("Read-Only", "off"), "read-only");
+		assert.equal(parseGuardMode("JAIL", "off"), "on");
 	});
 
 	it("falls back when the value is undefined", () => {
-		assert.equal(parseGuardMode(undefined, "trial"), "trial");
+		assert.equal(parseGuardMode(undefined, "on"), "on");
 	});
 
 	it("falls back on an unknown value", () => {
-		assert.equal(parseGuardMode("prison", "jail"), "jail");
+		assert.equal(parseGuardMode("prison", "read-only"), "read-only");
 	});
 });
 
@@ -55,9 +58,8 @@ describe("DEFAULT_CONFIG", () => {
 		assert.equal(DEFAULT_CONFIG.mode, "read-only");
 	});
 
-	it("runs three checkers and needs two safe votes", () => {
-		assert.equal(DEFAULT_CONFIG.checkerCount, 3);
-		assert.equal(DEFAULT_CONFIG.minSafeVotes, 2);
+	it("enables the checker by default", () => {
+		assert.equal(DEFAULT_CONFIG.checkerEnabled, true);
 	});
 
 	it("uses a positive checker timeout", () => {

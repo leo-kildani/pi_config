@@ -1,37 +1,39 @@
 /**
  * Configuration for the max-bash-guard extension.
  *
- * The guard mode is free, trial, jail, or read-only. The default mode comes from
- * the PI_MAX_BASH_GUARD_MODE environment variable. The checker settings control
- * the probabilistic layer.
+ * The guard mode is off, on, or read-only. The default mode comes from the
+ * PI_MAX_BASH_GUARD_MODE environment variable. The checker setting controls the
+ * single probabilistic layer.
  */
 
-export type GuardMode = "free" | "trial" | "jail" | "read-only";
-export type CheckerCount = 1 | 3 | 5;
-export const CHECKER_COUNTS: readonly CheckerCount[] = [1, 3, 5];
+export type GuardMode = "off" | "on" | "read-only";
 
 export interface MaxBashGuardConfig {
 	mode: GuardMode;
-	checkerCount: CheckerCount;
+	checkerEnabled: boolean;
 	checkerModel?: string;
-	minSafeVotes: number;
 	checkerTimeoutMs: number;
 }
+
+const LEGACY_MODES: Record<string, GuardMode> = {
+	free: "off",
+	trial: "on",
+	jail: "on",
+};
 
 export function parseGuardMode(value: string | undefined, defaultValue: GuardMode): GuardMode {
 	if (value === undefined) return defaultValue;
 	const normalized = value.trim().toLowerCase();
-	return normalized === "free" || normalized === "trial" || normalized === "jail" || normalized === "read-only" ? normalized : defaultValue;
+	if (normalized === "off" || normalized === "on" || normalized === "read-only") return normalized;
+	return LEGACY_MODES[normalized] ?? defaultValue;
 }
 
-export function parseCheckerCount(value: string | undefined, defaultValue: CheckerCount): CheckerCount {
+export function parseCheckerEnabled(value: string | undefined, defaultValue: boolean): boolean {
 	if (value === undefined) return defaultValue;
-	const parsed = Number(value.trim());
-	return CHECKER_COUNTS.includes(parsed as CheckerCount) ? parsed as CheckerCount : defaultValue;
-}
-
-export function scaleMinSafeVotes(checkerCount: CheckerCount, baseCount: CheckerCount, baseMinSafeVotes: number): number {
-	return Math.min(checkerCount, Math.ceil((checkerCount * baseMinSafeVotes) / baseCount));
+	const normalized = value.trim().toLowerCase();
+	if (normalized === "on" || normalized === "true" || normalized === "1") return true;
+	if (normalized === "off" || normalized === "false" || normalized === "0") return false;
+	return defaultValue;
 }
 
 export function parseIntegerEnv(value: string | undefined, defaultValue: number, min = 0): number {
@@ -44,7 +46,6 @@ export const DEFAULT_MODE = parseGuardMode(process.env.PI_MAX_BASH_GUARD_MODE, "
 
 export const DEFAULT_CONFIG: MaxBashGuardConfig = {
 	mode: DEFAULT_MODE,
-	checkerCount: parseCheckerCount(process.env.PI_MAX_BASH_GUARD_CHECKERS, 3),
-	minSafeVotes: parseIntegerEnv(process.env.PI_MAX_BASH_GUARD_MIN_SAFE_VOTES, 2, 1),
+	checkerEnabled: parseCheckerEnabled(process.env.PI_MAX_BASH_GUARD_CHECKER, true),
 	checkerTimeoutMs: parseIntegerEnv(process.env.PI_MAX_BASH_GUARD_CHECKER_TIMEOUT_MS, 20_000, 100),
 };
