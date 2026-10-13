@@ -4,3 +4,4 @@ node_modules/
 *.logs
 *.tsbuildinfo
 extensions/*/.env
+.plans/

@@ -7,13 +7,39 @@ import {
 	planAction,
 	planFileName,
 	planInstructions,
+	planTemplate,
+	planTemplateFileName,
 	plansDirectory,
+	projectPlansDirectory,
+	slugifyPlanName,
 	synthesizePlanName,
 } from "./logic.ts";
 
 describe("plansDirectory", () => {
 	it("places plans inside the configured Pi agent directory", () => {
 		assert.equal(plansDirectory("/custom/pi/agent"), "/custom/pi/agent/plans");
+	});
+});
+
+describe("projectPlansDirectory", () => {
+	it("places project plans inside <cwd>/.plans", () => {
+		assert.equal(projectPlansDirectory("/work"), "/work/.plans");
+	});
+});
+
+describe("slugifyPlanName", () => {
+	it("lowercases, drops punctuation, and joins words with dashes", () => {
+		assert.equal(slugifyPlanName("Database Connection"), "database-connection");
+	});
+
+	it("falls back to plan when no word remains", () => {
+		assert.equal(slugifyPlanName("!!!"), "plan");
+	});
+});
+
+describe("planTemplateFileName", () => {
+	it("appends the markdown extension", () => {
+		assert.equal(planTemplateFileName("API backend"), "api-backend.md");
 	});
 });
 
@@ -72,12 +98,23 @@ const HEADINGS = [
 	"## Scope",
 	"### Variables",
 	"### Files Affected",
-	"## Workflow",
-	"### Build",
-	"### Validate",
+	"## Workflows",
+	"### <Workflow Name>",
+	"- [ ] Build:",
+	"- [ ] Verify:",
 	"## Definition of Done",
 	"## How You're Graded",
 ];
+
+describe("planTemplate", () => {
+	it("contains the Workflows section with one build and verify list", () => {
+		const template = planTemplate();
+		assert.match(template, /## Workflows/);
+		assert.match(template, /### <Workflow Name>/);
+		assert.match(template, /- \[ \] Build:/);
+		assert.match(template, /- \[ \] Verify:/);
+	});
+});
 
 describe("planInstructions", () => {
 	it("names the exact plan path and the objective", () => {
@@ -89,7 +126,7 @@ describe("planInstructions", () => {
 	it("embeds the full plan template", () => {
 		const prompt = planInstructions("/plans/build-plan-abc.md", "Add a rollback note");
 		for (const heading of HEADINGS) assert.ok(prompt.includes(heading), `missing heading: ${heading}`);
-		assert.match(prompt, /only these two execution stages, in order/i);
+		assert.match(prompt, /one section per workflow/i);
 		assert.match(prompt, /exact files to create, modify, or delete/i);
 	});
 
@@ -113,10 +150,10 @@ describe("editInstructions", () => {
 });
 
 describe("buildInstructions", () => {
-	it("names the plan file and the workflow section", () => {
+	it("names the plan file and the Workflows section", () => {
 		const prompt = buildInstructions("/plans/build-plan-abc.md");
 		assert.match(prompt, /\/plans\/build-plan-abc\.md/);
-		assert.match(prompt, /Workflow/);
+		assert.match(prompt, /Workflows/);
 	});
 
 	it("uses an available todo tool without updating plan task checkboxes", () => {
@@ -133,7 +170,7 @@ describe("buildInstructions", () => {
 
 	it("tells the agent to run the verification commands", () => {
 		const prompt = buildInstructions("/plans/build-plan-abc.md");
-		assert.match(prompt, /Validate/);
+		assert.match(prompt, /Verify tasks/);
 		assert.match(prompt, /Definition of Done/);
 	});
 });

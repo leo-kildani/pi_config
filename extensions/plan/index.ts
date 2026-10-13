@@ -4,19 +4,23 @@
  * /plan <objective>  create a plan, or edit the pending one
  * /plan build        execute the pending plan
  * /plan show         toggle the Current Plan widget
+ * /plan template     write a plan template file in <cwd>/.plans
+ * /plan set          make a plan file the current plan (relative or absolute path)
  *
  * One plan is current per session. A plan is "pending" until its build run
  * finishes, then it is "built". A built plan stays current: /plan build reports
  * it, and /plan <objective> starts a fresh plan.
  *
  * State lives in a custom session entry, so it is branch-aware and survives
- * resume. Plan files live in <agentDir>/plans.
+ * resume. /plan <objective> files live in <agentDir>/plans. /plan template and
+ * /plan set use <cwd>/.plans.
  */
 
 import { getAgentDir, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { AutocompleteItem } from "@earendil-works/pi-tui";
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { mkdir, readdir, writeFile } from "node:fs/promises";
+import { isAbsolute, join } from "node:path";
 import {
 	buildAction,
 	buildInstructions,
@@ -24,7 +28,10 @@ import {
 	planAction,
 	planFileName,
 	planInstructions,
+	planTemplate,
+	planTemplateFileName,
 	plansDirectory,
+	projectPlansDirectory,
 	synthesizePlanName,
 	type PlanPhase,
 } from "./logic.ts";
@@ -42,6 +49,36 @@ interface PlanState {
 let state: PlanState | null = null;
 // True between /plan build and the agent_end that finishes it.
 let building = false;
+// Working directory captured at session start, used by /plan template and /plan set.
+let cwd = process.cwd();
+
+/** Plan file names in <cwd>/.plans, sorted, markdown only. */
+async function listProjectPlans(): Promise<string[]> {
+	try {
+		const names = await readdir(projectPlansDirectory(cwd));
+		return names.filter((name) => name.endsWith(".md")).sort();
+	} catch {
+		return [];
+	}
+}
+
+/** First free path for <name>.md in <cwd>/.plans; a collision gets a -2, -3, ... suffix. */
+function uniqueTemplatePath(name: string): string {
+	const file = planTemplateFileName(name);
+	const base = file.replace(/\.md$/, "");
+	let path = join(projectPlansDirectory(cwd), file);
+	for (let i = 2; existsSync(path); i++) path = join(projectPlansDirectory(cwd), `${base}-${i}.md`);
+	return path;
+}
+
+/** Resolve a user argument to a plan file. Accepts an absolute path, a cwd-relative path, or a bare name in <cwd>/.plans. */
+function resolvePlanFile(arg: string): string | null {
+	if (isAbsolute(arg)) return existsSync(arg) ? arg : null;
+	const relative = join(cwd, arg);
+	if (existsSync(relative)) return relative;
+	const project = join(projectPlansDirectory(cwd), arg);
+	return existsSync(project) ? project : null;
+}
 
 /** First free path for <name>-<sessionId>.md; a collision gets a -2, -3, ... suffix. */
 function uniquePlanPath(name: string, sessionId: string): string {
@@ -88,10 +125,15 @@ export default function (pi: ExtensionAPI): void {
 		state && state.sessionId === sessionId ? state : null;
 
 	pi.registerCommand("plan", {
-		description: "Plan workflow: <objective> to create or edit, 'build' to execute, 'show' to toggle",
-		getArgumentCompletions: (prefix: string): AutocompleteItem[] | null => {
-			const p = prefix.trim().toLowerCase();
-			const matches = ["build", "show"].filter((option) => option.startsWith(p));
+		description: "Plan workflow: <objective> to create or edit, 'build' to execute, 'show' to toggle, 'template' to create a file, 'set' to choose one",
+		getArgumentCompletions: async (prefix: string): Promise<AutocompleteItem[] | null> => {
+			const p = prefix.trimStart();
+			if (p.startsWith("set ")) {
+				const typed = p.slice(4).toLowerCase();
+				const files = (await listProjectPlans()).filter((file) => file.toLowerCase().startsWith(typed));
+				return files.length ? files.map((file) => ({ value: `set ${file}`, label: file })) : null;
+			}
+			const matches = ["build", "show", "set", "template"].filter((option) => option.startsWith(p.toLowerCase()));
 			return matches.length ? matches.map((value) => ({ value, label: value })) : null;
 		},
 		handler: async (args, ctx) => {
@@ -109,6 +151,46 @@ export default function (pi: ExtensionAPI): void {
 				persistState();
 				syncWidget(ctx);
 				ctx.ui.notify(state.widgetVisible ? "Plan widget shown" : "Plan widget hidden", "info");
+				return;
+			}
+
+			// /plan template — write a new template plan file. Pure file and UI, so it works while busy.
+			if (raw === "template" || raw.startsWith("template ")) {
+				let name = raw.slice("template".length).trim();
+				if (!name && ctx.hasUI) {
+					name = (await ctx.ui.input("Plan name", "e.g. api-backend"))?.trim() ?? "";
+				}
+				if (!name) {
+					ctx.ui.notify("Usage: /plan template <name>", "warning");
+					return;
+				}
+				const planPath = uniqueTemplatePath(name);
+				await mkdir(projectPlansDirectory(cwd), { recursive: true });
+				await writeFile(planPath, planTemplate(), "utf8");
+				ctx.ui.notify(`Plan template: ${planPath}`, "info");
+				return;
+			}
+
+			// /plan set — make a plan current. Pure state and UI, so it works while busy.
+			if (raw === "set" || raw.startsWith("set ")) {
+				let file = raw.slice("set".length).trim();
+				if (!file && ctx.hasUI) {
+					const files = await listProjectPlans();
+					if (!files.length) {
+						ctx.ui.notify(`No plan files in ${projectPlansDirectory(cwd)}. Run /plan template first.`, "warning");
+						return;
+					}
+					file = (await ctx.ui.select("Set plan", files)) ?? "";
+				}
+				const planPath = file ? resolvePlanFile(file) : null;
+				if (!planPath) {
+					ctx.ui.notify("Plan file not found. Run /plan template first.", "warning");
+					return;
+				}
+				state = { sessionId, planPath, phase: "pending", widgetVisible: currentFor(sessionId)?.widgetVisible ?? true };
+				persistState();
+				syncWidget(ctx);
+				ctx.ui.notify(`Plan set: ${planPath}`, "info");
 				return;
 			}
 
@@ -138,7 +220,7 @@ export default function (pi: ExtensionAPI): void {
 				objective = (await ctx.ui.input("Plan objective", "e.g. Add a plugin system"))?.trim() ?? "";
 			}
 			if (!objective) {
-				ctx.ui.notify("Usage: /plan <objective> | build | show", "warning");
+				ctx.ui.notify("Usage: /plan <objective> | build | show | template | set", "warning");
 				return;
 			}
 			if (!ctx.isIdle()) {
@@ -177,6 +259,7 @@ export default function (pi: ExtensionAPI): void {
 
 	// Rebuild state on load, switch, and tree navigate.
 	const rebuild = (_event: unknown, ctx: ExtensionContext): void => {
+		cwd = ctx.cwd;
 		reconstructState(ctx);
 		syncWidget(ctx);
 	};

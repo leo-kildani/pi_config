@@ -14,6 +14,11 @@ export function plansDirectory(agentDir: string): string {
 	return join(agentDir, "plans");
 }
 
+/** Project plans directory: <cwd>/.plans. */
+export function projectPlansDirectory(cwd: string): string {
+	return join(cwd, ".plans");
+}
+
 /** Deterministic plan slug: the first three non-filler words of the objective. */
 export function synthesizePlanName(objective: string): string {
 	const words = objective
@@ -28,6 +33,23 @@ export function synthesizePlanName(objective: string): string {
 
 export function planFileName(name: string, sessionId: string): string {
 	return `${name}-${sessionId}.md`;
+}
+
+/** Kebab slug of a plan name. Falls back to "plan" when no word remains. */
+export function slugifyPlanName(name: string): string {
+	const slug = name
+		.toLowerCase()
+		.replace(/[^a-z0-9\s]+/g, " ")
+		.split(/\s+/)
+		.filter(Boolean)
+		.slice(0, 8)
+		.join("-")
+		.slice(0, 80);
+	return slug || "plan";
+}
+
+export function planTemplateFileName(name: string): string {
+	return `${slugifyPlanName(name)}.md`;
 }
 
 /** /plan <objective>: edit a pending plan, otherwise create a new one. */
@@ -62,16 +84,12 @@ List the exact files to create, modify, or delete, with each file's action and i
 - \`path/to/new_file.ext\` — [CREATE]: Specify responsibilities and exports.
 - \`path/to/deprecated_file.ext\` — [DELETE]: State the reason for removal.
 
-## Workflow
-Planning is complete. Include only these two execution stages, in order. Make the tasks ordered, actionable, and verifiable.
+## Workflows
+Planning is complete. List one section per workflow. Each workflow has one execution list of build and verify tasks. Add only the workflows the plan needs.
 
-### Build
-- [ ] <First implementation task.>
-- [ ] <Next implementation task.>
-
-### Validate
-- [ ] <Run an exact verification command and check its expected result.>
-- [ ] <Check applicable Definition of Done items.>
+### <Workflow Name>
+- [ ] Build: <First implementation task.>
+- [ ] Verify: <Run an exact verification command and check its expected result.>
 
 ## Definition of Done
 List concrete, observable checklist items that prove the work is complete. Add task-specific subsections when needed. Include expected outcomes and exact verification commands where relevant.
@@ -81,6 +99,10 @@ List concrete, observable checklist items that prove the work is complete. Add t
 
 ## How You're Graded
 Give a concise rubric that states what the operator expects. Focus on correctness, scope, completed Definition of Done items, and honest verification results.`;
+
+export function planTemplate(): string {
+	return PLAN_STRUCTURE;
+}
 
 export function planInstructions(planPath: string, objective: string): string {
 	return `You are in PLAN MODE. Create an execution plan for: ${objective}
@@ -92,7 +114,7 @@ Inspect the relevant code before you write. Choose one solution. Keep every chan
 
 Write the file with exactly this structure:
 
-${PLAN_STRUCTURE}`;
+${planTemplate()}`;
 }
 
 export function editInstructions(planPath: string, objective: string): string {
@@ -107,11 +129,11 @@ export function buildInstructions(planPath: string): string {
 	return `You are in PLAN-BUILD MODE. Implement this plan: ${planPath}
 
 1. Read the plan file fully before you change code.
-2. Follow the Workflow in order: complete Build, then Validate. Keep at most one task in progress.
+2. Follow the Workflows in order. For each workflow, complete its Build tasks, then its Verify tasks. Keep at most one task in progress.
 3. Before execution tracking, check whether a todo-tracking tool is available. Use it if available, such as \`tools:write-todos\` or an equivalent.
-4. When you use a todo-tracking tool, create one todo for each actionable Workflow task and pass the full list as task statuses change. Do not update task checkboxes in the plan file.
+4. When you use a todo-tracking tool, create one todo for each Workflow task and pass the full list as task statuses change. Do not update task checkboxes in the plan file.
 5. If no todo-tracking tool is available, update Workflow task checkboxes in the plan file as each task finishes.
 6. Stay inside the Scope.
-7. Complete the Validate stage after the last change. Run the plan's verification commands and inspect the full output.
+7. Complete the Verify tasks after the last change. Run the plan's verification commands and inspect the full output.
 8. Stop when every applicable Definition of Done item passes. Report any failures or blockers honestly.`;
 }
