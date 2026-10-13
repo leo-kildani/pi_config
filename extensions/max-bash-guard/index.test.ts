@@ -121,6 +121,7 @@ describe("/maxguard", () => {
 			afterRender: (component) => {
 				initialPickerContent = component.render(100).join("\n");
 				component.handleInput("\x1b[B");
+				component.handleInput("\x1b[B");
 				component.handleInput("\r");
 				component.handleInput("\x1b[B");
 				component.handleInput("\r");
@@ -158,6 +159,24 @@ describe("/maxguard", () => {
 
 		assert.match(pickerContent, /cloudflare-workers-ai\/@cf\/cloudflare\/clef/);
 		assert.match(pickerContent, /Checker.*off/);
+	});
+
+	it("shows the scope setting and the maxguard.env hint", async () => {
+		const { command } = createGuard();
+		let pickerContent = "";
+		const { ctx } = createTuiContext({
+			afterRender: (component) => {
+				component.handleInput("\x1b[B");
+				component.handleInput("\r");
+				pickerContent = component.render(80).join("\n");
+			},
+		});
+
+		await command.handler("", ctx);
+
+		assert.match(pickerContent, /Scope/);
+		assert.match(pickerContent, /custom/);
+		assert.match(pickerContent, /set scope in `maxguard.env` using "SCOPE=<path>"/);
 	});
 });
 
@@ -296,5 +315,54 @@ describe("on mode tool calls", () => {
 
 		assert.equal(decision?.block, true);
 		assert.deepEqual(counts(), { checkerCalls: 1, promptCalls: 1 });
+	});
+});
+
+describe("scope tool calls", () => {
+	it("blocks an out-of-scope path in on mode", async () => {
+		const { toolCall, sessionStart } = createGuard();
+		const { ctx, counts } = createToolContext();
+		startSession(sessionStart, ctx, { mode: "on", checkerEnabled: true, scope: "cwd" });
+
+		const decision = await toolCall({ toolName: "bash", input: { command: "cat /etc/hosts" } }, ctx);
+
+		assert.equal(decision?.block, true);
+		assert.match(decision!.reason, /path outside scope/);
+		assert.match(decision!.reason, /Blocked outside scope/);
+		assert.deepEqual(counts(), { checkerCalls: 0, promptCalls: 0 });
+	});
+
+	it("allows an out-of-scope path when scope is off", async () => {
+		const { toolCall, sessionStart } = createGuard();
+		const { ctx, counts } = createToolContext();
+		startSession(sessionStart, ctx, { mode: "on", checkerEnabled: true, scope: "off" });
+
+		const decision = await toolCall({ toolName: "bash", input: { command: "cat /etc/hosts" } }, ctx);
+
+		assert.equal(decision, undefined);
+		assert.deepEqual(counts(), { checkerCalls: 0, promptCalls: 0 });
+	});
+
+	it("blocks an out-of-scope path in read-only mode", async () => {
+		const { toolCall, sessionStart } = createGuard();
+		const { ctx, counts } = createToolContext();
+		startSession(sessionStart, ctx, { mode: "read-only", checkerEnabled: true, scope: "cwd" });
+
+		const decision = await toolCall({ toolName: "bash", input: { command: "cat /etc/hosts" } }, ctx);
+
+		assert.equal(decision?.block, true);
+		assert.match(decision!.reason, /path outside scope/);
+		assert.deepEqual(counts(), { checkerCalls: 0, promptCalls: 0 });
+	});
+
+	it("treats a secret read as a secret even when it is out of scope", async () => {
+		const { toolCall, sessionStart } = createGuard();
+		const { ctx } = createToolContext({ confirm: false });
+		startSession(sessionStart, ctx, { mode: "on", checkerEnabled: true, scope: "cwd" });
+
+		const decision = await toolCall({ toolName: "bash", input: { command: "cat /root/.ssh/id_rsa" } }, ctx);
+
+		assert.equal(decision?.block, true);
+		assert.match(decision!.reason, /command reads a secret/);
 	});
 });

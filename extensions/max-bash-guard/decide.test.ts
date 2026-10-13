@@ -24,7 +24,7 @@ describe("summarizeVotes", () => {
 
 describe("decideGuardStep", () => {
 	it("runs every command in off mode", () => {
-		for (const category of ["read-only", "secret", "write", "unknown"] as const) {
+		for (const category of ["read-only", "secret", "write", "scope", "unknown"] as const) {
 			assert.equal(decideGuardStep("off", category, true), "run");
 			assert.equal(decideGuardStep("off", category, false), "run");
 		}
@@ -34,6 +34,7 @@ describe("decideGuardStep", () => {
 		assert.equal(decideGuardStep("read-only", "read-only", true), "run");
 		assert.equal(decideGuardStep("read-only", "secret", true), "block");
 		assert.equal(decideGuardStep("read-only", "write", true), "block");
+		assert.equal(decideGuardStep("read-only", "scope", true), "block");
 		assert.equal(decideGuardStep("read-only", "unknown", true), "block");
 	});
 
@@ -50,6 +51,11 @@ describe("decideGuardStep", () => {
 	it("prompts for write commands in on mode", () => {
 		assert.equal(decideGuardStep("on", "write", true), "prompt");
 		assert.equal(decideGuardStep("on", "write", false), "prompt");
+	});
+
+	it("blocks scope violations in on mode", () => {
+		assert.equal(decideGuardStep("on", "scope", true), "block");
+		assert.equal(decideGuardStep("on", "scope", false), "block");
 	});
 
 	it("votes on unknown commands only when the checker is enabled", () => {

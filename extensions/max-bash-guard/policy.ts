@@ -145,12 +145,12 @@ export function resolveCommandPath(arg: string, cwd: string): string {
 	return path.resolve(cwd, expanded);
 }
 
-function isInside(parent: string, child: string): boolean {
+export function isInside(parent: string, child: string): boolean {
 	const rel = path.relative(parent, child);
 	return rel === "" || (!!rel && !rel.startsWith("..") && !path.isAbsolute(rel));
 }
 
-function isInTmp(filePath: string): boolean {
+export function isInTmp(filePath: string): boolean {
 	return isInside(path.resolve("/tmp"), filePath) || isInside(path.resolve("/private/tmp"), filePath);
 }
 
@@ -229,9 +229,6 @@ export function evaluateCommandPolicy(command: string, cwd: string): PolicyDecis
 	for (const filePath of resolvedPaths) {
 		const reason = sensitivePathReason(filePath, cwd);
 		if (reason) return { action: "review", reason };
-		if (!isInside(cwd, filePath) && !isInTmp(filePath)) {
-			return { action: "review", reason: `path outside current working directory: ${filePath}` };
-		}
 	}
 
 	if (MUTATION_COMMAND_PATTERN.test(normalized) && resolvedPaths.length > 0) {

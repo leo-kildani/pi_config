@@ -7,7 +7,7 @@
 
 import type { GuardMode } from "./config.ts";
 
-export type CommandCategory = "read-only" | "secret" | "write" | "unknown";
+export type CommandCategory = "read-only" | "secret" | "write" | "scope" | "unknown";
 export type GuardStep = "run" | "block" | "prompt" | "vote";
 export type CheckerReply = "safe" | "destructive" | "unknown";
 
@@ -34,8 +34,9 @@ export function decideGuardStep(mode: GuardMode, category: CommandCategory, chec
 	if (mode === "off") return "run";
 	if (category === "read-only") return "run";
 	if (mode === "read-only") return "block";
-	// In on mode every caught command prompts the user. Secret and write
-	// commands never reach the checker. Only unknown commands may auto-allow.
+	// A scope violation always blocks. Secret and write commands prompt the
+	// user. Only unknown commands may auto-allow after a checker vote.
+	if (category === "scope") return "block";
 	if (category === "secret" || category === "write") return "prompt";
 	return checkerEnabled ? "vote" : "prompt";
 }

@@ -7,7 +7,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { DEFAULT_CONFIG, parseCheckerEnabled, parseGuardMode } from "./config.ts";
+import { DEFAULT_CONFIG, parseCheckerEnabled, parseGuardMode, parseScopeMode } from "./config.ts";
 
 describe("parseCheckerEnabled", () => {
 	it("accepts the on and off spellings", () => {
@@ -53,6 +53,24 @@ describe("parseGuardMode", () => {
 	});
 });
 
+describe("parseScopeMode", () => {
+	it("accepts the three scope modes", () => {
+		assert.equal(parseScopeMode("off", "cwd"), "off");
+		assert.equal(parseScopeMode("cwd", "off"), "cwd");
+		assert.equal(parseScopeMode("custom", "cwd"), "custom");
+	});
+
+	it("trims and lowercases the value", () => {
+		assert.equal(parseScopeMode("  OFF ", "cwd"), "off");
+		assert.equal(parseScopeMode("CUSTOM", "cwd"), "custom");
+	});
+
+	it("falls back when the value is undefined or unknown", () => {
+		assert.equal(parseScopeMode(undefined, "cwd"), "cwd");
+		assert.equal(parseScopeMode("wide", "cwd"), "cwd");
+	});
+});
+
 describe("DEFAULT_CONFIG", () => {
 	it("defaults to read-only mode", () => {
 		assert.equal(DEFAULT_CONFIG.mode, "read-only");
@@ -60,6 +78,10 @@ describe("DEFAULT_CONFIG", () => {
 
 	it("enables the checker by default", () => {
 		assert.equal(DEFAULT_CONFIG.checkerEnabled, true);
+	});
+
+	it("defaults the scope to cwd", () => {
+		assert.equal(DEFAULT_CONFIG.scope, "cwd");
 	});
 
 	it("uses a positive checker timeout", () => {

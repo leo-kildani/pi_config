@@ -7,6 +7,7 @@
  */
 
 import { evaluateCommandPolicy } from "./policy.ts";
+import { evaluateScope } from "./scope.ts";
 
 export interface CommandSpan {
 	text: string;
@@ -89,24 +90,28 @@ function wholeCommandSpan(command: string): CommandSpan | null {
 	return spans[0] ?? null;
 }
 
-export function analyzeCommand(command: string, cwd: string): CommandAnalysis {
+export function analyzeCommand(command: string, cwd: string, scopePath?: string): CommandAnalysis {
 	const spans: CommandSpan[] = [];
 	const reasons: string[] = [];
 
 	for (const segment of splitCommandChain(command)) {
-		const decision = evaluateCommandPolicy(segment.text, cwd);
-		if (decision.action === "review") {
+		const policy = evaluateCommandPolicy(segment.text, cwd);
+		const scope = evaluateScope(segment.text, cwd, scopePath);
+		const reason = scope.action === "review" ? scope.reason : policy.action === "review" ? policy.reason : undefined;
+		if (reason) {
 			spans.push(segment);
-			reasons.push(decision.reason);
+			reasons.push(reason);
 		}
 	}
 
 	if (spans.length === 0) {
-		const decision = evaluateCommandPolicy(command, cwd);
-		if (decision.action === "review") {
+		const policy = evaluateCommandPolicy(command, cwd);
+		const scope = evaluateScope(command, cwd, scopePath);
+		const reason = scope.action === "review" ? scope.reason : policy.action === "review" ? policy.reason : undefined;
+		if (reason) {
 			const whole = wholeCommandSpan(command);
 			if (whole) spans.push(whole);
-			reasons.push(decision.reason);
+			reasons.push(reason);
 		}
 	}
 

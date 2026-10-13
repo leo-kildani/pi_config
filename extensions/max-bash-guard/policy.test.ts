@@ -16,7 +16,6 @@ import { commandReadsSecrets, evaluateCommandPolicy, normalizeCommand } from "./
 const FIXTURE_BASE = existsSync("/var/tmp") ? "/var/tmp" : homedir();
 
 let cwd: string;
-let outside: string;
 
 function git(args: string[]) {
 	execFileSync("git", args, { cwd, stdio: "ignore" });
@@ -25,9 +24,7 @@ function git(args: string[]) {
 beforeEach(() => {
 	const root = mkdtempSync(path.join(FIXTURE_BASE, "max-bash-guard-policy-"));
 	cwd = path.join(root, "repo");
-	outside = path.join(root, "outside.txt");
 	mkdirSync(cwd);
-	writeFileSync(outside, "outside");
 	git(["init"]);
 	writeFileSync(path.join(cwd, "tracked.txt"), "tracked");
 	git(["add", "tracked.txt"]);
@@ -90,12 +87,6 @@ describe("evaluateCommandPolicy", () => {
 		assert.equal(evaluateCommandPolicy("bq update --description test dataset.table", cwd).action, "review");
 		assert.equal(evaluateCommandPolicy("kubectl delete pod foo", cwd).action, "review");
 		assert.equal(evaluateCommandPolicy("terragrunt apply", cwd).action, "review");
-	});
-
-	it("reviews paths outside the current working directory", () => {
-		const decision = evaluateCommandPolicy(`cat ${outside}`, cwd);
-		assert.equal(decision.action, "review");
-		assert.ok("reason" in decision && decision.reason.includes("path outside current working directory"));
 	});
 
 	it("reviews repository metadata and recursive broad deletes", () => {

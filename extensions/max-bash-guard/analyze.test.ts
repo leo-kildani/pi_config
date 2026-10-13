@@ -77,4 +77,12 @@ describe("analyzeCommand", () => {
 		assert.equal(analysis.destructive, false);
 		assert.deepEqual(analysis.spans, []);
 	});
+
+	it("marks an out-of-scope segment with the scope reason", () => {
+		const analysis = analyzeCommand("echo x && cat /etc/hosts", cwd, cwd);
+		assert.equal(analysis.destructive, true);
+		assert.equal(analysis.spans.length, 1);
+		assert.equal(analysis.spans[0]!.text, "cat /etc/hosts");
+		assert.ok(analysis.reasons.some((reason) => reason.includes("path outside scope")));
+	});
 });

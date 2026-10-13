@@ -3,13 +3,16 @@
  *
  * The guard mode is off, on, or read-only. The default mode comes from the
  * PI_MAX_BASH_GUARD_MODE environment variable. The checker setting controls the
- * single probabilistic layer.
+ * single probabilistic layer. The scope setting bounds the paths a command may
+ * touch.
  */
 
 export type GuardMode = "off" | "on" | "read-only";
+export type ScopeMode = "off" | "cwd" | "custom";
 
 export interface MaxBashGuardConfig {
 	mode: GuardMode;
+	scope: ScopeMode;
 	checkerEnabled: boolean;
 	checkerModel?: string;
 	checkerTimeoutMs: number;
@@ -36,6 +39,13 @@ export function parseCheckerEnabled(value: string | undefined, defaultValue: boo
 	return defaultValue;
 }
 
+export function parseScopeMode(value: string | undefined, defaultValue: ScopeMode): ScopeMode {
+	if (value === undefined) return defaultValue;
+	const normalized = value.trim().toLowerCase();
+	if (normalized === "off" || normalized === "cwd" || normalized === "custom") return normalized;
+	return defaultValue;
+}
+
 export function parseIntegerEnv(value: string | undefined, defaultValue: number, min = 0): number {
 	if (value === undefined) return defaultValue;
 	const parsed = Number.parseInt(value.trim(), 10);
@@ -43,9 +53,11 @@ export function parseIntegerEnv(value: string | undefined, defaultValue: number,
 }
 
 export const DEFAULT_MODE = parseGuardMode(process.env.PI_MAX_BASH_GUARD_MODE, "read-only");
+export const DEFAULT_SCOPE = parseScopeMode(process.env.PI_MAX_BASH_GUARD_SCOPE, "cwd");
 
 export const DEFAULT_CONFIG: MaxBashGuardConfig = {
 	mode: DEFAULT_MODE,
+	scope: DEFAULT_SCOPE,
 	checkerEnabled: parseCheckerEnabled(process.env.PI_MAX_BASH_GUARD_CHECKER, true),
 	checkerTimeoutMs: parseIntegerEnv(process.env.PI_MAX_BASH_GUARD_CHECKER_TIMEOUT_MS, 20_000, 100),
 };
