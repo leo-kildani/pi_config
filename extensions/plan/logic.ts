@@ -41,46 +41,46 @@ export function buildAction(phase: PlanPhase | null): "none" | "already" | "buil
 	return phase === "built" ? "already" : "none";
 }
 
-const PLAN_STRUCTURE = `# Plan: <Action Title>
+const PLAN_STRUCTURE = `# <Plan Name>
 
-### Overview
-Write one or two sentences. State the main objective, technical mechanism, and expected outcome.
+## Problem
+Describe the current problem, task, or feature. State the relevant baseline and why the work is needed.
 
-### Context and Baseline
-- **Current State:** State existing code, interfaces, or constraints found during inspection.
-- **Key Invariants:** State architectural rules that must not change.
+## Solution
+Describe the chosen solution and the expected outcome. Include enough technical detail to guide implementation without listing execution steps here.
 
-### Scope Limits
-- **In-Scope:** Specify capabilities, behaviors, and files targeted in this plan.
-- **Out-of-Scope:** Specify deferred features and areas that you must not modify.
+## Scope
+Define the working environment and the boundaries for this work. State important constraints and what must remain unchanged.
 
-### Affected Files and Components
+### Variables
+List repeated paths, environment names, configuration values, or other values that must stay consistent. Use exact values when known. Write \`None\` if there are no repeated variables.
+
+### Files Affected
+List the exact files to create, modify, or delete, with each file's action and intended change. Include only files, not general components. Write \`None\` if no files are affected.
+
 - \`path/to/file.ext\` — [MODIFY]: Specify functions, types, or imports to change.
 - \`path/to/new_file.ext\` — [CREATE]: Specify responsibilities and exports.
 - \`path/to/deprecated_file.ext\` — [DELETE]: State the reason for removal.
 
-### Technical Approach and Architecture
-Specify the step-by-step logic: data structures, state changes, API changes, and integration points. Add a Mermaid diagram only when data flow is complex.
+## Workflow
+Planning is complete. Include only these two execution stages, in order. Make the tasks ordered, actionable, and verifiable.
 
-### Interfaces and Dependencies
-- **Interfaces:** Specify inputs, outputs, events, and compatibility rules that change or must stay constant.
-- **Dependencies:** List packages, modules, services, and integration points needed for the work.
+### Build
+- [ ] <First implementation task.>
+- [ ] <Next implementation task.>
 
-### Verification and Acceptance Criteria
-- **Acceptance Criteria:** Specify observable behaviors that must pass.
-- **Verification Commands:** Specify exact commands to run (for example: \`pytest tests/test_feature.py -k test_name\` or \`cargo check\`).
+### Validate
+- [ ] <Run an exact verification command and check its expected result.>
+- [ ] <Check applicable Definition of Done items.>
 
-### Global Constraints
-- Preserve existing names, resolution order, command syntax, and user behavior unless this plan explicitly changes them.
-- Keep all changes within the Scope Limits.
-- Do not add speculative abstractions.
+## Definition of Done
+List concrete, observable checklist items that prove the work is complete. Add task-specific subsections when needed. Include expected outcomes and exact verification commands where relevant.
 
-### Execution Tasks
-Tasks must show ordered, verifiable states:
-- [ ] Task 1: <Set up interfaces>
-- [ ] Task 2: <Implement core logic>
-- [ ] Task 3: <Integrate code>
-- [ ] Task 4: <Run verification commands and check acceptance criteria>`;
+- [ ] <Observable result is correct.>
+- [ ] <Relevant checks pass.>
+
+## How You're Graded
+Give a concise rubric that states what the operator expects. Focus on correctness, scope, completed Definition of Done items, and honest verification results.`;
 
 export function planInstructions(planPath: string, objective: string): string {
 	return `You are in PLAN MODE. Create an execution plan for: ${objective}
@@ -88,7 +88,7 @@ export function planInstructions(planPath: string, objective: string): string {
 Write the plan to this exact path with the write tool: ${planPath}
 This path is final. Use it again for later edits.
 
-Inspect the relevant code before you write. Choose one solution. Keep every change inside the Scope Limits. Use skill:writing-in-ste for the plan prose.
+Inspect the relevant code before you write. Choose one solution. Keep every change inside the Scope. Use skill:writing-in-ste for the plan prose.
 
 Write the file with exactly this structure:
 
@@ -107,11 +107,11 @@ export function buildInstructions(planPath: string): string {
 	return `You are in PLAN-BUILD MODE. Implement this plan: ${planPath}
 
 1. Read the plan file fully before you change code.
-2. Follow the Execution Tasks in order. Keep at most one task in progress.
+2. Follow the Workflow in order: complete Build, then Validate. Keep at most one task in progress.
 3. Before execution tracking, check whether a todo-tracking tool is available. Use it if available, such as \`tools:write-todos\` or an equivalent.
-4. When you use a todo-tracking tool, create one todo for each Execution Task and pass the full list as task statuses change. Do not update task checkboxes in the plan file.
-5. If no todo-tracking tool is available, update task checkboxes in the plan file as each task finishes.
-6. Stay inside the Scope Limits.
-7. Run the Verification Commands after the last change. Inspect the full output.
-8. Stop when the acceptance criteria pass.`;
+4. When you use a todo-tracking tool, create one todo for each actionable Workflow task and pass the full list as task statuses change. Do not update task checkboxes in the plan file.
+5. If no todo-tracking tool is available, update Workflow task checkboxes in the plan file as each task finishes.
+6. Stay inside the Scope.
+7. Complete the Validate stage after the last change. Run the plan's verification commands and inspect the full output.
+8. Stop when every applicable Definition of Done item passes. Report any failures or blockers honestly.`;
 }

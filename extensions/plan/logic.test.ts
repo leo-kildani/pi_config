@@ -66,16 +66,17 @@ describe("buildAction", () => {
 });
 
 const HEADINGS = [
-	"# Plan:",
-	"### Overview",
-	"### Context and Baseline",
-	"### Scope Limits",
-	"### Affected Files and Components",
-	"### Technical Approach and Architecture",
-	"### Interfaces and Dependencies",
-	"### Verification and Acceptance Criteria",
-	"### Global Constraints",
-	"### Execution Tasks",
+	"# <Plan Name>",
+	"## Problem",
+	"## Solution",
+	"## Scope",
+	"### Variables",
+	"### Files Affected",
+	"## Workflow",
+	"### Build",
+	"### Validate",
+	"## Definition of Done",
+	"## How You're Graded",
 ];
 
 describe("planInstructions", () => {
@@ -88,6 +89,8 @@ describe("planInstructions", () => {
 	it("embeds the full plan template", () => {
 		const prompt = planInstructions("/plans/build-plan-abc.md", "Add a rollback note");
 		for (const heading of HEADINGS) assert.ok(prompt.includes(heading), `missing heading: ${heading}`);
+		assert.match(prompt, /only these two execution stages, in order/i);
+		assert.match(prompt, /exact files to create, modify, or delete/i);
 	});
 
 	it("tells the agent to write the plan file", () => {
@@ -110,10 +113,10 @@ describe("editInstructions", () => {
 });
 
 describe("buildInstructions", () => {
-	it("names the plan file and the execution tasks section", () => {
+	it("names the plan file and the workflow section", () => {
 		const prompt = buildInstructions("/plans/build-plan-abc.md");
 		assert.match(prompt, /\/plans\/build-plan-abc\.md/);
-		assert.match(prompt, /Execution Tasks/);
+		assert.match(prompt, /Workflow/);
 	});
 
 	it("uses an available todo tool without updating plan task checkboxes", () => {
@@ -125,11 +128,12 @@ describe("buildInstructions", () => {
 
 	it("falls back to plan task checkboxes when no todo tool is available", () => {
 		const prompt = buildInstructions("/plans/build-plan-abc.md");
-		assert.match(prompt, /If no todo-tracking tool is available, update task checkboxes in the plan file/i);
+		assert.match(prompt, /If no todo-tracking tool is available, update Workflow task checkboxes in the plan file/i);
 	});
 
 	it("tells the agent to run the verification commands", () => {
 		const prompt = buildInstructions("/plans/build-plan-abc.md");
-		assert.match(prompt, /Verification Commands/);
+		assert.match(prompt, /Validate/);
+		assert.match(prompt, /Definition of Done/);
 	});
 });
