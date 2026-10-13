@@ -247,10 +247,11 @@ export default function (pi: ExtensionAPI): void {
 		},
 	});
 
-	// The build run ends: mark the plan built.
-	pi.on("agent_end", async (_event, ctx) => {
+	// The build run settles: mark the plan built unless it was aborted.
+	pi.on("agent_settled", (event, ctx) => {
 		if (!building || !state) return;
 		building = false;
+		if (event.aborted) return;
 		state = { ...state, phase: "built" };
 		persistState();
 		syncWidget(ctx);

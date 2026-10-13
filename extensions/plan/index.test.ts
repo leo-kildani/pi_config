@@ -9,6 +9,7 @@ import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@e
 import planExtension from "./index.ts";
 
 type SessionStartHandler = (event: unknown, ctx: ExtensionContext) => void;
+type LifecycleHandler = (event: { aborted?: boolean }, ctx: ExtensionContext) => void | Promise<void>;
 type PlanCommand = {
 	getArgumentCompletions?: (prefix: string) => Promise<{ value: string; label: string }[] | null>;
 	handler?: (args: string, ctx: ExtensionCommandContext) => Promise<void>;
@@ -17,15 +18,20 @@ type PlanCommand = {
 function createPlanExtension() {
 	let sessionStart: SessionStartHandler | undefined;
 	let command: PlanCommand | undefined;
+	const handlers = new Map<string, LifecycleHandler>();
+	const appendedEntries: unknown[] = [];
 	const sentMessages: string[] = [];
 	const pi = {
 		registerCommand: (_name: string, registration: PlanCommand) => {
 			command = registration;
 		},
-		on: (event: string, handler: SessionStartHandler) => {
-			if (event === "session_start") sessionStart = handler;
+		on: (event: string, handler: LifecycleHandler) => {
+			if (event === "session_start") sessionStart = handler as SessionStartHandler;
+			handlers.set(event, handler);
 		},
-		appendEntry() {},
+		appendEntry: (_type: string, data: unknown) => {
+			appendedEntries.push(data);
+		},
 		sendUserMessage: (message: string) => {
 			sentMessages.push(message);
 		},
@@ -34,7 +40,7 @@ function createPlanExtension() {
 	planExtension(pi);
 	assert.ok(sessionStart);
 	assert.ok(command);
-	return { sessionStart, command, sentMessages };
+	return { sessionStart, command, handlers, appendedEntries, sentMessages };
 }
 
 function createContext(phase: "pending" | "built", cwd = "/agent", selectValue?: string) {
@@ -104,6 +110,52 @@ describe("plan argument completions", () => {
 		} finally {
 			await rm(directory, { recursive: true, force: true });
 		}
+	});
+});
+
+describe("plan build completion", () => {
+	it("does not mark a build complete at agent_end", async () => {
+		const { sessionStart, command, handlers, appendedEntries } = createPlanExtension();
+		const { ctx, notifications } = createContext("pending");
+		sessionStart({}, ctx);
+		await command.handler?.("build", ctx as never);
+
+		await handlers.get("agent_end")?.({}, ctx);
+
+		assert.deepEqual(appendedEntries, []);
+		assert.ok(!notifications.includes("Current Plan Built"));
+	});
+
+	it("keeps an aborted build pending at settlement", async () => {
+		const { sessionStart, command, handlers, appendedEntries } = createPlanExtension();
+		const { ctx, widgets, notifications } = createContext("pending");
+		sessionStart({}, ctx);
+		await command.handler?.("build", ctx as never);
+		await handlers.get("agent_end")?.({}, ctx);
+		await handlers.get("agent_settled")?.({ aborted: true }, ctx);
+
+		assert.deepEqual(appendedEntries, []);
+		assert.equal(widgets.at(-1)?.[1], "muted:Status: pending");
+		assert.ok(!notifications.includes("Current Plan Built"));
+	});
+
+	it("marks a non-aborted settled build built", async () => {
+		const { sessionStart, command, handlers, appendedEntries } = createPlanExtension();
+		const { ctx, widgets, notifications } = createContext("pending");
+		sessionStart({}, ctx);
+		await command.handler?.("build", ctx as never);
+		await handlers.get("agent_end")?.({}, ctx);
+		assert.deepEqual(appendedEntries, []);
+		await handlers.get("agent_settled")?.({ aborted: false }, ctx);
+
+		assert.deepEqual(appendedEntries, [{
+			sessionId: "session-1",
+			planPath: "/agent/plans/demo.md",
+			phase: "built",
+			widgetVisible: true,
+		}]);
+		assert.equal(widgets.at(-1)?.[1], "muted:Status: built");
+		assert.ok(notifications.includes("Current Plan Built"));
 	});
 });
 

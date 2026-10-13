@@ -14,7 +14,7 @@ This extension runs a plan workflow. It registers one command, `/plan`. The comm
 | `/plan template [name]` | Write a plan template file in `<cwd>/.plans`. |
 | `/plan set [file]` | Make any plan file the current plan. Accepts a relative or an absolute path. The completions and the select list show bare `<cwd>/.plans` file names. |
 
-A plan has two states: `pending` and `built`. A build run flips the state to `built` at `agent_end`.
+A plan has two states: `pending` and `built`. A build run flips the state to `built` at `agent_settled` only when it was not aborted.
 
 The extension keeps one current plan for each session. The session id is part of the plan file name, so two sessions do not collide.
 
@@ -41,7 +41,7 @@ A hand test starts `pi` with this repository as the working directory. Then run 
 
 ## Structure
 
-- `index.ts` — the command, the widget, the argument completions, the `.plans` file helpers, and the `agent_end` hook.
+- `index.ts` — the command, the widget, the argument completions, the `.plans` file helpers, and the `agent_settled` hook.
 - `logic.ts` — the pure helpers: plan name, action choice, and agent prompts.
 - `logic.test.ts` — the tests for `logic.ts`.
 
@@ -53,7 +53,7 @@ Keep these properties. They are the purpose of the extension.
 - One pending plan exists for each session.
 - `/plan build` does nothing when no plan is set.
 - `/plan build` reports `Current Plan Built` when the current plan is built.
-- The state flips to `built` at `agent_end`. The `building` flag guards the flip.
+- The state flips to `built` at `agent_settled` only when the build was not aborted. The `building` flag guards the flip.
 - A built plan stays current until a new plan is created.
 - The plan name is the first three non-filler words plus the session id. Example: `build-plan-extension-01a12d01.md`.
 - A name collision adds a `-2`, `-3`, or later suffix.
