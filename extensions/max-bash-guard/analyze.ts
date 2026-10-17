@@ -99,6 +99,64 @@ export function splitCommandChain(command: string): CommandSpan[] {
 	return spans;
 }
 
+function innerGroups(command: string): string[] {
+	const groups: string[] = [];
+	let quote: "'" | '"' | "`" | null = null;
+	let depth = 0;
+	let start = -1;
+
+	for (let i = 0; i < command.length; i++) {
+		const char = command[i]!;
+		if (quote) {
+			if (char === "\\" && (quote === '"' || quote === "`")) {
+				i += 1;
+				continue;
+			}
+			if (char === quote) quote = null;
+			continue;
+		}
+		if (char === "\\") {
+			i += 1;
+			continue;
+		}
+		if (char === "'" || char === '"' || char === "`") {
+			quote = char;
+			continue;
+		}
+		if (char === "(") {
+			if (depth === 0) start = i + 1;
+			depth += 1;
+			continue;
+		}
+		if (char === ")" && depth > 0) {
+			depth -= 1;
+			if (depth === 0 && start >= 0) {
+				groups.push(command.slice(start, i));
+				start = -1;
+			}
+		}
+	}
+	return groups;
+}
+
+function mergeNestedClassification(classification: CommandClassification, command: string, cwd: string): void {
+	for (const group of innerGroups(command)) {
+		for (const nested of classifyCommandChain(group, cwd, undefined)) {
+			const inner = nested.classification;
+			if (inner.readsSecrets) {
+				classification.readsSecrets = true;
+				classification.secretReason = classification.secretReason ?? inner.secretReason;
+			}
+			if (inner.writesData || inner.destroysData) {
+				classification.readOnly = false;
+				classification.writesData = classification.writesData || inner.writesData;
+				classification.destroysData = classification.destroysData || inner.destroysData;
+				classification.effectReason = classification.effectReason ?? inner.effectReason;
+			}
+		}
+	}
+}
+
 export function classifyCommandChain(
 	command: string,
 	cwd: string,
@@ -117,6 +175,7 @@ export function classifyCommandChain(
 			classification.destroysData = classification.destroysData || chainEffect.destroysData;
 			classification.effectReason = classification.effectReason ?? chainEffect.reason;
 		}
+		mergeNestedClassification(classification, span.text, cwd);
 		const scope = evaluateScope(span.text, cwd, scopePath);
 		return {
 			...span,

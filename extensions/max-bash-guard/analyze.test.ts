@@ -156,4 +156,18 @@ describe("classifyCommandChain", () => {
 		assert.equal(spans[0]!.classification.writesData, true);
 		assert.equal(spans[0]!.classification.effectReason, "remote script execution");
 	});
+
+	it("classifies destructive commands inside groups", () => {
+		for (const command of ["(echo x; rm -rf /)", "(rm -rf /; echo done)", "echo $(rm -rf /)"]) {
+			const [span] = classifyCommandChain(command, cwd, undefined);
+			assert.equal(span!.classification.destroysData, true, command);
+			assert.equal(span!.classification.effectReason, "recursive force delete of a broad path", command);
+		}
+	});
+
+	it("classifies secret reads inside groups", () => {
+		const [span] = classifyCommandChain("echo $(cat .env)", cwd, undefined);
+		assert.equal(span!.classification.readsSecrets, true);
+		assert.equal(span!.classification.secretReason, "command reads a secret");
+	});
 });

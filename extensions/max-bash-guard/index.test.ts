@@ -400,6 +400,18 @@ describe("on mode tool calls", () => {
 		assert.deepEqual(counts(), { checkerCalls: 1, promptCalls: 0 });
 	});
 
+	it("blocks a destructive command inside a group without a checker call", async () => {
+		const { toolCall, sessionStart } = createGuard();
+		const { ctx, counts } = createToolContext({ confirm: false });
+		startSession(sessionStart, ctx, { mode: "on", checkerEnabled: true, scope: "off" });
+
+		const decision = await toolCall({ toolName: "bash", input: { command: "(echo x; rm -rf /)" } }, ctx);
+
+		assert.equal(decision?.block, true);
+		assert.match(decision!.reason, /recursive force delete of a broad path/);
+		assert.deepEqual(counts(), { checkerCalls: 0, promptCalls: 1 });
+	});
+
 	it("lists every blocked command and reason in one prompt", async () => {
 		const { toolCall, sessionStart } = createGuard();
 		const { ctx, counts } = createToolContext({ classifyReply: async () => harmfulResponse(), confirm: false });
