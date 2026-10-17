@@ -80,15 +80,36 @@ describe("evaluateCommandChain", () => {
 	it("blocks only the command that reads a secret", () => {
 		const verdicts = evaluateCommandChain("cat .env && echo done", cwd, undefined, "on");
 		assert.equal(verdicts[0]!.safe, false);
+		assert.equal(verdicts[0]!.provenReadOnly, false);
 		assert.equal(verdicts[0]!.reason, "command reads a secret");
 		assert.equal(verdicts[1]!.safe, true);
+	});
+
+	it("blocks a secret read before an out-of-scope error", () => {
+		const [verdict] = evaluateCommandChain("cat /root/.ssh/id_rsa", cwd, cwd, "on");
+		assert.equal(verdict!.safe, false);
+		assert.equal(verdict!.reason, "command reads a secret");
 	});
 
 	it("blocks only the write command", () => {
 		const verdicts = evaluateCommandChain("ls && touch marker", cwd, undefined, "on");
 		assert.equal(verdicts[0]!.safe, true);
 		assert.equal(verdicts[1]!.safe, false);
+		assert.equal(verdicts[1]!.provenReadOnly, false);
 		assert.equal(verdicts[1]!.reason, "write or destructive command");
+	});
+
+	it("blocks a destructive secret path with the effect reason", () => {
+		const [verdict] = evaluateCommandChain("rm .env", cwd, undefined, "on");
+		assert.equal(verdict!.safe, false);
+		assert.equal(verdict!.provenReadOnly, false);
+		assert.equal(verdict!.reason, "sensitive file .env");
+	});
+
+	it("uses the generic effect reason for a delete outside a broad path", () => {
+		const [verdict] = evaluateCommandChain("rm -rf /tmp/scratch", cwd, undefined, "on");
+		assert.equal(verdict!.safe, false);
+		assert.equal(verdict!.reason, "write or destructive command");
 	});
 
 	it("blocks only the out-of-scope command", () => {
@@ -96,6 +117,12 @@ describe("evaluateCommandChain", () => {
 		assert.equal(verdicts[0]!.safe, true);
 		assert.equal(verdicts[1]!.safe, false);
 		assert.ok(verdicts[1]!.reason?.includes("path outside scope"));
+	});
+
+	it("blocks an out-of-scope effect before the effect reason", () => {
+		const [verdict] = evaluateCommandChain("rm /etc/hosts", cwd, cwd, "on");
+		assert.equal(verdict!.safe, false);
+		assert.ok(verdict!.reason?.includes("path outside scope"));
 	});
 
 	it("marks a proven read-only command", () => {
@@ -126,6 +153,7 @@ describe("evaluateCommandChain", () => {
 	it("marks every command safe in off mode", () => {
 		const verdicts = evaluateCommandChain("rm -rf /", cwd, undefined, "off");
 		assert.equal(verdicts[0]!.safe, true);
+		assert.equal(verdicts[0]!.provenReadOnly, true);
 	});
 
 	it("blocks every unsafe command in a chain", () => {

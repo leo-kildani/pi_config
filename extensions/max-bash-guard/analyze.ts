@@ -7,8 +7,7 @@
  */
 
 import type { GuardMode } from "./config.ts";
-import { commandReadsSecrets, evaluateCommandPolicy } from "./policy.ts";
-import { evaluateReadOnlyCommand } from "./read-only.ts";
+import { classifyCommand } from "./classify.ts";
 import { evaluateScope } from "./scope.ts";
 
 export interface CommandSpan {
@@ -95,15 +94,20 @@ function verdict(span: CommandSpan, safe: boolean, provenReadOnly: boolean, reas
 
 function evaluateSegment(span: CommandSpan, cwd: string, scopePath: string | undefined, mode: GuardMode): CommandVerdict {
 	if (mode === "off") return verdict(span, true, true);
-	if (commandReadsSecrets(span.text, cwd)) return verdict(span, false, false, "command reads a secret");
+
+	const classification = classifyCommand(span.text, cwd);
+	if (classification.readsSecrets) {
+		return verdict(span, false, false, classification.secretReason ?? "command reads a secret");
+	}
 
 	const scope = evaluateScope(span.text, cwd, scopePath);
 	if (scope.action === "review") return verdict(span, false, false, scope.reason);
 
-	if (evaluateReadOnlyCommand(span.text, cwd).action === "allow") return verdict(span, true, true);
+	if (classification.readOnly) return verdict(span, true, true);
 
-	const policy = evaluateCommandPolicy(span.text, cwd);
-	if (policy.action === "review") return verdict(span, false, false, policy.reason);
+	if (classification.writesData || classification.destroysData) {
+		return verdict(span, false, false, classification.effectReason ?? "write or destructive command");
+	}
 
 	if (mode === "read-only") return verdict(span, false, false, "command is not proven read-only");
 	return verdict(span, true, false);
