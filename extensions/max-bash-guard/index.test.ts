@@ -199,7 +199,7 @@ function createToolContext(options: {
 			classify: async (_model: unknown, context: { state: { command: string } }) => {
 				checkerCalls++;
 				checkedCommands.push(context.state.command);
-				return (options.classifyReply ?? (async () => safeResponse()))();
+				return (options.classifyReply ?? (async () => notHarmfulResponse()))();
 			},
 		},
 		ui: {
@@ -215,16 +215,16 @@ function createToolContext(options: {
 	return { ctx, commands: () => checkedCommands, counts: () => ({ checkerCalls, promptCalls }) };
 }
 
-function safeResponse() {
-	return { stopReason: "stop", answers: { safety: { type: "choice", choice: "SAFE" } } };
+function notHarmfulResponse() {
+	return { stopReason: "stop", answers: { verdict: { type: "choice", choice: "NOT_HARMFUL" } } };
 }
 
 function errorResponse() {
 	return { stopReason: "error", errorMessage: "boom", answers: {} };
 }
 
-function destructiveResponse() {
-	return { stopReason: "stop", answers: { safety: { type: "choice", choice: "DESTRUCTIVE" } } };
+function harmfulResponse() {
+	return { stopReason: "stop", answers: { verdict: { type: "choice", choice: "DATA_DESTRUCTION" } } };
 }
 
 describe("off mode tool calls", () => {
@@ -302,9 +302,9 @@ describe("on mode tool calls", () => {
 		assert.deepEqual(counts(), { checkerCalls: 0, promptCalls: 1 });
 	});
 
-	it("allows an unknown command when the checker reports safe", async () => {
+	it("allows an unknown command when the judge reports no harm", async () => {
 		const { toolCall, sessionStart } = createGuard();
-		const { ctx, counts } = createToolContext({ classifyReply: async () => safeResponse() });
+		const { ctx, counts } = createToolContext({ classifyReply: async () => notHarmfulResponse() });
 		startSession(sessionStart, ctx, { mode: "on", checkerEnabled: true });
 
 		const decision = await toolCall({ toolName: "bash", input: { command: "python script.py" } }, ctx);
@@ -315,7 +315,7 @@ describe("on mode tool calls", () => {
 
 	it("checks each unproven command with its own text", async () => {
 		const { toolCall, sessionStart } = createGuard();
-		const { ctx, commands, counts } = createToolContext({ classifyReply: async () => safeResponse() });
+		const { ctx, commands, counts } = createToolContext({ classifyReply: async () => notHarmfulResponse() });
 		startSession(sessionStart, ctx, { mode: "on", checkerEnabled: true });
 
 		const decision = await toolCall({ toolName: "bash", input: { command: "python a.py && python b.py" } }, ctx);
@@ -327,14 +327,14 @@ describe("on mode tool calls", () => {
 
 	it("lists every blocked command and reason in one prompt", async () => {
 		const { toolCall, sessionStart } = createGuard();
-		const { ctx, counts } = createToolContext({ classifyReply: async () => destructiveResponse(), confirm: false });
+		const { ctx, counts } = createToolContext({ classifyReply: async () => harmfulResponse(), confirm: false });
 		startSession(sessionStart, ctx, { mode: "on", checkerEnabled: true });
 
 		const decision = await toolCall({ toolName: "bash", input: { command: "touch marker && python b.py && cat .env" } }, ctx);
 
 		assert.equal(decision?.block, true);
 		assert.match(decision!.reason, /1\. write or destructive command/);
-		assert.match(decision!.reason, /2\. Checker did not agree/);
+		assert.match(decision!.reason, /2\. data destruction/);
 		assert.match(decision!.reason, /3\. command reads a secret/);
 		assert.deepEqual(counts(), { checkerCalls: 1, promptCalls: 1 });
 	});
@@ -360,7 +360,7 @@ describe("on mode tool calls", () => {
 		assert.doesNotMatch(content, /warning:cat \.env/);
 	});
 
-	it("prompts when the checker errors", async () => {
+	it("prompts when the judge errors", async () => {
 		const { toolCall, sessionStart } = createGuard();
 		const { ctx, counts } = createToolContext({ classifyReply: async () => errorResponse(), confirm: false });
 		startSession(sessionStart, ctx, { mode: "on", checkerEnabled: true });
@@ -368,6 +368,7 @@ describe("on mode tool calls", () => {
 		const decision = await toolCall({ toolName: "bash", input: { command: "python script.py" } }, ctx);
 
 		assert.equal(decision?.block, true);
+		assert.match(decision!.reason, /judge failed: boom/);
 		assert.deepEqual(counts(), { checkerCalls: 1, promptCalls: 1 });
 	});
 });

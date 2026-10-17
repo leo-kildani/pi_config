@@ -9,8 +9,8 @@
  * In on mode the guard splits a chain into one item per command. It runs the
  * deterministic guard on each item. A secret read, a scope violation, or a
  * policy violation blocks the item. A proven read-only item is safe. Every
- * other safe item goes to one classifier check. A safe reply keeps the item
- * safe.
+ * other safe item goes to the judge. A not-harmful reply keeps the item safe.
+ * A harmful reply blocks the item with the judge reason.
  *
  * The guard runs the full command when no item is blocked. Otherwise the prompt
  * shows the full command with every blocked item in bold. It lists every block
@@ -33,9 +33,8 @@ import {
 import { Container, type SettingItem, SettingsList, Text } from "@earendil-works/pi-tui";
 
 import { evaluateCommandChain, type CommandVerdict } from "./analyze.ts";
-import { runCheckers, type CheckerRunResult } from "./checkers.ts";
 import { DEFAULT_CONFIG, parseCheckerEnabled, parseGuardMode, parseScopeMode, type GuardMode, type ScopeMode } from "./config.ts";
-import { afterVotes } from "./decide.ts";
+import { judgeCommand } from "./judge.ts";
 import { resolveScopePath } from "./scope.ts";
 import { promptForDecision } from "./ui.ts";
 
@@ -59,7 +58,7 @@ export default function (pi: ExtensionAPI) {
 	let checkerModel: string | undefined;
 	let checkerEnabled = DEFAULT_CONFIG.checkerEnabled;
 
-	function checkerConfig() {
+	function judgeConfig() {
 		return { ...DEFAULT_CONFIG, checkerModel, checkerEnabled };
 	}
 
@@ -89,18 +88,13 @@ export default function (pi: ExtensionAPI) {
 		return allowed ? { allowed: true } : { allowed: false, reason: `${TITLE}: ${summary}. User denied.` };
 	}
 
-	function voteReason(result: CheckerRunResult): string {
-		const { safe, destructive, unknown, total } = result.summary;
-		return `Checker did not agree the command is safe (${safe} safe, ${destructive} destructive, ${unknown} unknown of ${total}).`;
-	}
-
 	async function guardCommand(ctx: ExtensionContext, command: string): Promise<GuardDecision> {
 		if (mode === "off") return { allowed: true };
 
 		const scopePath = resolveScopePath(scope, ctx.cwd);
 		const verdicts = evaluateCommandChain(command, ctx.cwd, scopePath, mode);
 		const blocked = verdicts.filter((item) => !item.safe);
-		let checkerRan = false;
+		let judgeRan = false;
 
 		for (const item of verdicts) {
 			if (!item.safe || item.provenReadOnly) continue;
@@ -110,18 +104,18 @@ export default function (pi: ExtensionAPI) {
 				blocked.push(item);
 				continue;
 			}
-			const result = await runCheckers(ctx, item.text, checkerConfig(), ctx.signal);
-			checkerRan = true;
-			if (afterVotes(result.summary) === "run") continue;
+			const result = await judgeCommand(ctx, item.text, judgeConfig(), ctx.signal);
+			judgeRan = true;
+			if (!result.harmful) continue;
 			item.safe = false;
-			item.reason = voteReason(result);
+			item.reason = result.reason;
 			blocked.push(item);
 		}
 
 		blocked.sort((a, b) => a.start - b.start);
 
 		if (blocked.length === 0) {
-			if (checkerRan && ctx.hasUI) ctx.ui.notify("✅ Bash guard: the checker reports the command is safe.", "info");
+			if (judgeRan && ctx.hasUI) ctx.ui.notify("✅ Bash guard: the judge reports the command is safe.", "info");
 			return { allowed: true };
 		}
 
