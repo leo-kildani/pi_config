@@ -12,11 +12,10 @@
  * it, and /plan <objective> starts a fresh plan.
  *
  * State lives in a custom session entry, so it is branch-aware and survives
- * resume. /plan <objective> files live in <agentDir>/plans. /plan template and
- * /plan set use <cwd>/.plans.
+ * resume. Plan files live in <cwd>/.plans.
  */
 
-import { getAgentDir, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { AutocompleteItem } from "@earendil-works/pi-tui";
 import { existsSync } from "node:fs";
 import { mkdir, readdir, writeFile } from "node:fs/promises";
@@ -30,13 +29,11 @@ import {
 	planInstructions,
 	planTemplate,
 	planTemplateFileName,
-	plansDirectory,
 	projectPlansDirectory,
 	synthesizePlanName,
 	type PlanPhase,
 } from "./logic.ts";
 
-const PLANS_DIR = plansDirectory(getAgentDir());
 const STATE_ENTRY = "plan-state";
 
 interface PlanState {
@@ -49,7 +46,7 @@ interface PlanState {
 let state: PlanState | null = null;
 // True between /plan build and the agent_end that finishes it.
 let building = false;
-// Working directory captured at session start, used by /plan template and /plan set.
+// Working directory captured at session start, used by plan creation, /plan template, and /plan set.
 let cwd = process.cwd();
 
 /** Plan file names in <cwd>/.plans, sorted, markdown only. */
@@ -84,8 +81,9 @@ function resolvePlanFile(arg: string): string | null {
 function uniquePlanPath(name: string, sessionId: string): string {
 	const file = planFileName(name, sessionId);
 	const base = file.replace(/\.md$/, "");
-	let path = join(PLANS_DIR, file);
-	for (let i = 2; existsSync(path); i++) path = join(PLANS_DIR, `${base}-${i}.md`);
+	const directory = projectPlansDirectory(cwd);
+	let path = join(directory, file);
+	for (let i = 2; existsSync(path); i++) path = join(directory, `${base}-${i}.md`);
 	return path;
 }
 
@@ -238,6 +236,7 @@ export default function (pi: ExtensionAPI): void {
 				return;
 			}
 
+			await mkdir(projectPlansDirectory(cwd), { recursive: true });
 			const planPath = uniquePlanPath(synthesizePlanName(objective), sessionId);
 			state = { sessionId, planPath, phase: "pending", widgetVisible: state?.widgetVisible ?? true };
 			persistState();
