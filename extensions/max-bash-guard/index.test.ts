@@ -251,6 +251,19 @@ describe("read-only mode tool calls", () => {
 
 		assert.equal(readDecision, undefined);
 		assert.equal(decision?.block, true);
+		assert.match(decision!.reason, /write or destructive command/);
+		assert.deepEqual(counts(), { checkerCalls: 0, promptCalls: 0 });
+	});
+
+	it("blocks an unproven command with the read-only reason", async () => {
+		const { toolCall, sessionStart } = createGuard();
+		const { ctx, counts } = createToolContext();
+		startSession(sessionStart, ctx, { mode: "read-only", checkerEnabled: true });
+
+		const decision = await toolCall({ toolName: "bash", input: { command: "python script.py" } }, ctx);
+
+		assert.equal(decision?.block, true);
+		assert.match(decision!.reason, /command is not proven read-only/);
 		assert.deepEqual(counts(), { checkerCalls: 0, promptCalls: 0 });
 	});
 });
@@ -275,6 +288,31 @@ describe("on mode tool calls", () => {
 		const decision = await toolCall({ toolName: "bash", input: { command: "cat .env" } }, ctx);
 
 		assert.equal(decision, undefined);
+		assert.deepEqual(counts(), { checkerCalls: 0, promptCalls: 1 });
+	});
+
+	it("prompts for a git object secret", async () => {
+		const { toolCall, sessionStart } = createGuard();
+		const { ctx, counts } = createToolContext({ confirm: false });
+		startSession(sessionStart, ctx, { mode: "on", checkerEnabled: true });
+
+		const decision = await toolCall({ toolName: "bash", input: { command: "git show HEAD:.env" } }, ctx);
+
+		assert.equal(decision?.block, true);
+		assert.match(decision!.reason, /command reads a secret/);
+		assert.deepEqual(counts(), { checkerCalls: 0, promptCalls: 1 });
+	});
+
+	it("blocks a destructive secret path with the effect reason", async () => {
+		const { toolCall, sessionStart } = createGuard();
+		const { ctx, counts } = createToolContext({ confirm: false });
+		startSession(sessionStart, ctx, { mode: "on", checkerEnabled: true });
+
+		const decision = await toolCall({ toolName: "bash", input: { command: "rm .env" } }, ctx);
+
+		assert.equal(decision?.block, true);
+		assert.match(decision!.reason, /sensitive file \.env/);
+		assert.doesNotMatch(decision!.reason, /command reads a secret/);
 		assert.deepEqual(counts(), { checkerCalls: 0, promptCalls: 1 });
 	});
 
@@ -336,6 +374,7 @@ describe("on mode tool calls", () => {
 		assert.match(decision!.reason, /1\. write or destructive command/);
 		assert.match(decision!.reason, /2\. data destruction/);
 		assert.match(decision!.reason, /3\. command reads a secret/);
+		assert.match(decision!.reason, /1\. write or destructive command; 2\. data destruction; 3\. command reads a secret/);
 		assert.deepEqual(counts(), { checkerCalls: 1, promptCalls: 1 });
 	});
 

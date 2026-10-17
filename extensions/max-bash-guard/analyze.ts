@@ -2,12 +2,11 @@
  * Chain analysis for a bash command.
  *
  * splitCommandChain breaks a command on the unquoted separators ;, &&, ||, |,
- * and newline. evaluateCommandChain runs the deterministic guard on each
- * segment and returns one verdict per command with its source offsets.
+ * and newline. classifyCommandChain classifies each segment and adds its scope
+ * result. Every span keeps its source offsets.
  */
 
-import type { GuardMode } from "./config.ts";
-import { classifyCommand } from "./classify.ts";
+import { classifyCommand, type CommandClassification } from "./classify.ts";
 import { evaluateScope } from "./scope.ts";
 
 export interface CommandSpan {
@@ -16,13 +15,9 @@ export interface CommandSpan {
 	end: number;
 }
 
-export interface CommandVerdict {
-	text: string;
-	start: number;
-	end: number;
-	safe: boolean;
-	provenReadOnly: boolean;
-	reason?: string;
+export interface ClassifiedSpan extends CommandSpan {
+	classification: CommandClassification;
+	scopeReason?: string;
 }
 
 function pushTrimmed(command: string, spans: CommandSpan[], from: number, to: number): void {
@@ -88,36 +83,18 @@ export function splitCommandChain(command: string): CommandSpan[] {
 	return spans;
 }
 
-function verdict(span: CommandSpan, safe: boolean, provenReadOnly: boolean, reason?: string): CommandVerdict {
-	return { ...span, safe, provenReadOnly, reason };
-}
-
-function evaluateSegment(span: CommandSpan, cwd: string, scopePath: string | undefined, mode: GuardMode): CommandVerdict {
-	if (mode === "off") return verdict(span, true, true);
-
-	const classification = classifyCommand(span.text, cwd);
-	if (classification.readsSecrets) {
-		return verdict(span, false, false, classification.secretReason ?? "command reads a secret");
-	}
-
-	const scope = evaluateScope(span.text, cwd, scopePath);
-	if (scope.action === "review") return verdict(span, false, false, scope.reason);
-
-	if (classification.readOnly) return verdict(span, true, true);
-
-	if (classification.writesData || classification.destroysData) {
-		return verdict(span, false, false, classification.effectReason ?? "write or destructive command");
-	}
-
-	if (mode === "read-only") return verdict(span, false, false, "command is not proven read-only");
-	return verdict(span, true, false);
-}
-
-export function evaluateCommandChain(
+export function classifyCommandChain(
 	command: string,
 	cwd: string,
 	scopePath: string | undefined,
-	mode: GuardMode,
-): CommandVerdict[] {
-	return splitCommandChain(command).map((span) => evaluateSegment(span, cwd, scopePath, mode));
+): ClassifiedSpan[] {
+	return splitCommandChain(command).map((span) => {
+		const classification = classifyCommand(span.text, cwd);
+		const scope = evaluateScope(span.text, cwd, scopePath);
+		return {
+			...span,
+			classification,
+			...(scope.action === "review" ? { scopeReason: scope.reason } : {}),
+		};
+	});
 }

@@ -28,6 +28,7 @@ describe("classifyCommand", () => {
 	it("allows safe git inspection and GET requests", () => {
 		for (const command of [
 			"git diff -- README.md",
+			"git status --short",
 			"git show HEAD:README.md",
 			"curl -q https://example.com",
 			"curl -q -X GET https://example.com",
@@ -37,7 +38,7 @@ describe("classifyCommand", () => {
 	});
 
 	it("allows safe options, expansions, globs, and input redirection", () => {
-		for (const command of ["ls -la", "cat *.md", 'cat "$HOME/README.md"', "cat README.md < input.txt"]) {
+		for (const command of ["ls -la", "ls ~", "cat *.md", 'cat "$HOME/README.md"', "cat README.md < input.txt"]) {
 			assert.equal(classifyCommand(command, cwd).readOnly, true, command);
 		}
 	});
@@ -72,7 +73,9 @@ describe("classifyCommand", () => {
 	});
 
 	it("marks an environment disclosure as a secret read", () => {
-		assert.equal(classifyCommand("env", cwd).readsSecrets, true);
+		for (const command of ["env", "printenv PATH", "jq -n env", "head <(printenv)", 'printf %s "$TOKEN"']) {
+			assert.equal(classifyCommand(command, cwd).readsSecrets, true, command);
+		}
 	});
 
 	it("marks a secret environment expansion as a secret read", () => {
@@ -81,6 +84,12 @@ describe("classifyCommand", () => {
 
 	it("marks a git object secret path as a secret read", () => {
 		assert.equal(classifyCommand("git show HEAD:.env", cwd).readsSecrets, true);
+	});
+
+	it("marks sensitive path arguments as secret reads", () => {
+		for (const command of ["cat .git/config", "cat config/client-secret.json", "cat terraform.tfvars"]) {
+			assert.equal(classifyCommand(command, cwd).readsSecrets, true, command);
+		}
 	});
 
 	it("does not mark env as an argument as a secret read", () => {
@@ -131,6 +140,16 @@ describe("classifyCommand", () => {
 		}
 	});
 
+	it("marks non-GET curl requests as not read-only", () => {
+		for (const command of [
+			"curl https://example.com",
+			"curl -o response.txt https://example.com",
+			"curl -X POST https://example.com",
+		]) {
+			assert.equal(classifyCommand(command, cwd).readOnly, false, command);
+		}
+	});
+
 	it("marks cloud and sensitive commands with their reasons", () => {
 		const cases = [
 			{ command: "sudo id", writes: true, destroys: false, reason: "privilege escalation" },
@@ -161,6 +180,18 @@ describe("classifyCommand", () => {
 	it("uses the broad-delete reason only for broad paths", () => {
 		assert.equal(classifyCommand("rm -rf /", cwd).effectReason, "recursive force delete of a broad path");
 		assert.equal(classifyCommand("rm -rf /tmp/scratch", cwd).effectReason, "write or destructive command");
+	});
+
+	it("uses a specific effect reason for a delete of the current directory", () => {
+		const result = classifyCommand("rm -rf .", cwd);
+		assert.equal(result.destroysData, true);
+		assert.equal(result.effectReason, "recursive delete of current working directory");
+	});
+
+	it("uses the effect reason for a delete of repository metadata", () => {
+		const result = classifyCommand("rm -rf .git", cwd);
+		assert.equal(result.destroysData, true);
+		assert.equal(result.effectReason, "sensitive path .git");
 	});
 });
 

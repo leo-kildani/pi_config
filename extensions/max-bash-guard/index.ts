@@ -32,7 +32,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Container, type SettingItem, SettingsList, Text } from "@earendil-works/pi-tui";
 
-import { evaluateCommandChain, type CommandVerdict } from "./analyze.ts";
+import { classifyCommandChain, type CommandSpan } from "./analyze.ts";
 import { DEFAULT_CONFIG, parseCheckerEnabled, parseGuardMode, parseScopeMode, type GuardMode, type ScopeMode } from "./config.ts";
 import { judgeCommand } from "./judge.ts";
 import { resolveScopePath } from "./scope.ts";
@@ -52,6 +52,8 @@ interface GuardState {
 
 type GuardDecision = { allowed: true } | { allowed: false; reason: string };
 
+type BlockedSpan = CommandSpan & { reason: string };
+
 export default function (pi: ExtensionAPI) {
 	let mode: GuardMode = DEFAULT_CONFIG.mode;
 	let scope: ScopeMode = DEFAULT_CONFIG.scope;
@@ -70,11 +72,11 @@ export default function (pi: ExtensionAPI) {
 		pi.appendEntry<GuardState>(STATE_ENTRY, { mode, scope, checkerModel, checkerEnabled, timestamp: Date.now() });
 	}
 
-	function blockReasons(blocked: readonly CommandVerdict[]): string[] {
-		return blocked.map((item, index) => `${index + 1}. ${item.reason ?? "blocked"}`);
+	function blockReasons(blocked: readonly BlockedSpan[]): string[] {
+		return blocked.map((item, index) => `${index + 1}. ${item.reason}`);
 	}
 
-	async function askUser(ctx: ExtensionContext, command: string, blocked: readonly CommandVerdict[]): Promise<GuardDecision> {
+	async function askUser(ctx: ExtensionContext, command: string, blocked: readonly BlockedSpan[]): Promise<GuardDecision> {
 		const reasons = blockReasons(blocked);
 		const summary = reasons.join("; ");
 		if (!ctx.hasUI) {
@@ -92,27 +94,48 @@ export default function (pi: ExtensionAPI) {
 		if (mode === "off") return { allowed: true };
 
 		const scopePath = resolveScopePath(scope, ctx.cwd);
-		const verdicts = evaluateCommandChain(command, ctx.cwd, scopePath, mode);
-		const blocked = verdicts.filter((item) => !item.safe);
+		const spans = classifyCommandChain(command, ctx.cwd, scopePath);
+		const blocked: BlockedSpan[] = [];
 		let judgeRan = false;
 
-		for (const item of verdicts) {
-			if (!item.safe || item.provenReadOnly) continue;
-			if (!checkerEnabled) {
-				item.safe = false;
-				item.reason = "the checker is off and the guard cannot prove this command safe";
-				blocked.push(item);
+		const block = (span: CommandSpan, reason: string): void => {
+			blocked.push({ text: span.text, start: span.start, end: span.end, reason });
+		};
+
+		for (const span of spans) {
+			const classification = span.classification;
+			const readAllowed = classification.readOnly && span.scopeReason === undefined;
+			if (readAllowed) continue;
+
+			if (classification.readsSecrets) {
+				block(span, classification.secretReason ?? "command reads a secret");
 				continue;
 			}
-			const result = await judgeCommand(ctx, item.text, judgeConfig(), ctx.signal);
-			judgeRan = true;
-			if (!result.harmful) continue;
-			item.safe = false;
-			item.reason = result.reason;
-			blocked.push(item);
-		}
 
-		blocked.sort((a, b) => a.start - b.start);
+			if (span.scopeReason) {
+				block(span, span.scopeReason);
+				continue;
+			}
+
+			if (classification.destroysData || classification.writesData) {
+				block(span, classification.effectReason ?? "write or destructive command");
+				continue;
+			}
+
+			if (mode === "read-only") {
+				block(span, "command is not proven read-only");
+				continue;
+			}
+
+			if (!checkerEnabled) {
+				block(span, "the checker is off and the guard cannot prove this command safe");
+				continue;
+			}
+
+			const result = await judgeCommand(ctx, span.text, judgeConfig(), ctx.signal);
+			judgeRan = true;
+			if (result.harmful) block(span, result.reason);
+		}
 
 		if (blocked.length === 0) {
 			if (judgeRan && ctx.hasUI) ctx.ui.notify("✅ Bash guard: the judge reports the command is safe.", "info");

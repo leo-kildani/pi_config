@@ -1,5 +1,5 @@
 /**
- * Unit tests for analyze.ts, the chain split and per-command verdicts.
+ * Unit tests for analyze.ts, the chain split and per-command classification.
  * Runs with the Node built-in test runner:
  *   node --experimental-strip-types --test extensions/max-bash-guard/analyze.test.ts
  */
@@ -7,7 +7,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { evaluateCommandChain, splitCommandChain } from "./analyze.ts";
+import { classifyCommandChain, splitCommandChain } from "./analyze.ts";
 
 const cwd = process.cwd();
 
@@ -55,109 +55,87 @@ describe("splitCommandChain", () => {
 	});
 });
 
-describe("evaluateCommandChain", () => {
-	it("returns one verdict for a single command", () => {
-		const verdicts = evaluateCommandChain("ls src", cwd, undefined, "on");
-		assert.deepEqual(verdicts, [
-			{ text: "ls src", start: 0, end: 6, safe: true, provenReadOnly: true, reason: undefined },
-		]);
+describe("classifyCommandChain", () => {
+	it("returns one classified span for a command without separators", () => {
+		const [span] = classifyCommandChain("ls src", cwd, undefined);
+		assert.deepEqual(span, {
+			text: "ls src",
+			start: 0,
+			end: 6,
+			classification: {
+				readOnly: true,
+				readsSecrets: false,
+				writesData: false,
+				destroysData: false,
+			},
+		});
 	});
 
-	it("returns one verdict per command in a chain", () => {
-		const verdicts = evaluateCommandChain("echo x && rm -rf / && ls", cwd, undefined, "on");
-		assert.deepEqual(verdicts.map((verdict) => verdict.text), ["echo x", "rm -rf /", "ls"]);
-		assert.equal(verdicts[1]!.safe, false);
-		assert.ok(verdicts[1]!.reason?.includes("recursive force delete"));
+	it("returns one classified span per command in a chain", () => {
+		const spans = classifyCommandChain("echo x && rm -rf / && ls", cwd, undefined);
+		assert.deepEqual(spans.map((span) => span.text), ["echo x", "rm -rf /", "ls"]);
+		assert.equal(spans[0]!.classification.readOnly, true);
+		assert.equal(spans[1]!.classification.destroysData, true);
+		assert.equal(spans[2]!.classification.readOnly, true);
 	});
 
-	it("keeps the offsets aligned with the source", () => {
+	it("keeps offsets aligned with the source", () => {
 		const command = "  echo a &&  rm -rf / ";
-		for (const verdict of evaluateCommandChain(command, cwd, undefined, "on")) {
-			assert.equal(command.slice(verdict.start, verdict.end), verdict.text);
+		for (const span of classifyCommandChain(command, cwd, undefined)) {
+			assert.equal(command.slice(span.start, span.end), span.text);
 		}
 	});
 
-	it("blocks only the command that reads a secret", () => {
-		const verdicts = evaluateCommandChain("cat .env && echo done", cwd, undefined, "on");
-		assert.equal(verdicts[0]!.safe, false);
-		assert.equal(verdicts[0]!.provenReadOnly, false);
-		assert.equal(verdicts[0]!.reason, "command reads a secret");
-		assert.equal(verdicts[1]!.safe, true);
+	it("marks a secret read", () => {
+		const [span] = classifyCommandChain("cat .env", cwd, undefined);
+		assert.equal(span!.classification.readOnly, false);
+		assert.equal(span!.classification.readsSecrets, true);
+		assert.equal(span!.classification.secretReason, "command reads a secret");
 	});
 
-	it("blocks a secret read before an out-of-scope error", () => {
-		const [verdict] = evaluateCommandChain("cat /root/.ssh/id_rsa", cwd, cwd, "on");
-		assert.equal(verdict!.safe, false);
-		assert.equal(verdict!.reason, "command reads a secret");
+	it("marks a write", () => {
+		const [span] = classifyCommandChain("touch marker", cwd, undefined);
+		assert.equal(span!.classification.writesData, true);
+		assert.equal(span!.classification.effectReason, "write or destructive command");
 	});
 
-	it("blocks only the write command", () => {
-		const verdicts = evaluateCommandChain("ls && touch marker", cwd, undefined, "on");
-		assert.equal(verdicts[0]!.safe, true);
-		assert.equal(verdicts[1]!.safe, false);
-		assert.equal(verdicts[1]!.provenReadOnly, false);
-		assert.equal(verdicts[1]!.reason, "write or destructive command");
+	it("marks a destroy", () => {
+		const [span] = classifyCommandChain("rm file", cwd, undefined);
+		assert.equal(span!.classification.destroysData, true);
 	});
 
-	it("blocks a destructive secret path with the effect reason", () => {
-		const [verdict] = evaluateCommandChain("rm .env", cwd, undefined, "on");
-		assert.equal(verdict!.safe, false);
-		assert.equal(verdict!.provenReadOnly, false);
-		assert.equal(verdict!.reason, "sensitive file .env");
+	it("uses the effect reason for a destructive secret path", () => {
+		const [span] = classifyCommandChain("rm .env", cwd, undefined);
+		assert.equal(span!.classification.readsSecrets, false);
+		assert.equal(span!.classification.destroysData, true);
+		assert.equal(span!.classification.effectReason, "sensitive file .env");
 	});
 
-	it("uses the generic effect reason for a delete outside a broad path", () => {
-		const [verdict] = evaluateCommandChain("rm -rf /tmp/scratch", cwd, undefined, "on");
-		assert.equal(verdict!.safe, false);
-		assert.equal(verdict!.reason, "write or destructive command");
+	it("adds a scope reason for an out-of-scope path", () => {
+		const [span] = classifyCommandChain("cat /etc/hosts", cwd, cwd);
+		assert.equal(span!.classification.readOnly, true);
+		assert.match(span!.scopeReason ?? "", /path outside scope/);
 	});
 
-	it("blocks only the out-of-scope command", () => {
-		const verdicts = evaluateCommandChain("echo x && cat /etc/hosts", cwd, cwd, "on");
-		assert.equal(verdicts[0]!.safe, true);
-		assert.equal(verdicts[1]!.safe, false);
-		assert.ok(verdicts[1]!.reason?.includes("path outside scope"));
+	it("keeps secret data with an out-of-scope path", () => {
+		const [span] = classifyCommandChain("cat /root/.ssh/id_rsa", cwd, cwd);
+		assert.equal(span!.classification.readsSecrets, true);
+		assert.match(span!.scopeReason ?? "", /path outside scope/);
 	});
 
-	it("blocks an out-of-scope effect before the effect reason", () => {
-		const [verdict] = evaluateCommandChain("rm /etc/hosts", cwd, cwd, "on");
-		assert.equal(verdict!.safe, false);
-		assert.ok(verdict!.reason?.includes("path outside scope"));
+	it("does not add a scope reason inside the scope", () => {
+		const [span] = classifyCommandChain("cat README.md", cwd, cwd);
+		assert.equal(span!.scopeReason, undefined);
 	});
 
-	it("marks a proven read-only command", () => {
-		const [verdict] = evaluateCommandChain("git status", cwd, undefined, "on");
-		assert.equal(verdict!.safe, true);
-		assert.equal(verdict!.provenReadOnly, true);
+	it("classifies a read-only chain", () => {
+		const spans = classifyCommandChain("cat README.md && git status --short", cwd, undefined);
+		assert.deepEqual(spans.map((span) => span.classification.readOnly), [true, true]);
 	});
 
-	it("marks an unproven safe command for the checker", () => {
-		const [verdict] = evaluateCommandChain("python script.py", cwd, undefined, "on");
-		assert.equal(verdict!.safe, true);
-		assert.equal(verdict!.provenReadOnly, false);
-		assert.equal(verdict!.reason, undefined);
-	});
-
-	it("blocks an unproven command in read-only mode", () => {
-		const [verdict] = evaluateCommandChain("python script.py", cwd, undefined, "read-only");
-		assert.equal(verdict!.safe, false);
-		assert.equal(verdict!.reason, "command is not proven read-only");
-	});
-
-	it("blocks a write command in read-only mode with the policy reason", () => {
-		const [verdict] = evaluateCommandChain("touch marker", cwd, undefined, "read-only");
-		assert.equal(verdict!.safe, false);
-		assert.equal(verdict!.reason, "write or destructive command");
-	});
-
-	it("marks every command safe in off mode", () => {
-		const verdicts = evaluateCommandChain("rm -rf /", cwd, undefined, "off");
-		assert.equal(verdicts[0]!.safe, true);
-		assert.equal(verdicts[0]!.provenReadOnly, true);
-	});
-
-	it("blocks every unsafe command in a chain", () => {
-		const verdicts = evaluateCommandChain("cat .env && rm -rf /", cwd, undefined, "on");
-		assert.deepEqual(verdicts.map((verdict) => verdict.safe), [false, false]);
+	it("classifies each side of a pipeline", () => {
+		const spans = classifyCommandChain("cat README.md | tee copy.txt", cwd, undefined);
+		assert.equal(spans[0]!.classification.readOnly, true);
+		assert.equal(spans[1]!.classification.writesData, true);
 	});
 });
