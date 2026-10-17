@@ -6,14 +6,15 @@
  *   on         allow read-only commands, block secret reads, guard writes
  *   read-only  allow read-only commands only, block the rest
  *
- * In on mode the guard runs four steps. A secret read and a destructive or
- * write command prompt the user. A scope violation blocks. A read-only command
- * is an allow. Every other command goes to one classifier check when the
- * checker is on. A safe reply is an allow, and every other reply prompts the
- * user.
+ * In on mode the guard splits a chain into one item per command. It runs the
+ * deterministic guard on each item. A secret read, a scope violation, or a
+ * policy violation blocks the item. A proven read-only item is safe. Every
+ * other safe item goes to one classifier check. A safe reply keeps the item
+ * safe.
  *
- * The prompt shows the full command, a short reason, and an allow or deny
- * choice. The destructive sub-command appears in bold and the error color.
+ * The guard runs the full command when no item is blocked. Otherwise the prompt
+ * shows the full command with every blocked item in bold. It lists every block
+ * reason and offers an allow or deny choice.
  *
  * The scope setting bounds the paths a command may touch. The values are off,
  * cwd, and custom. custom reads SCOPE from maxguard.env in the working
@@ -31,13 +32,11 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Container, type SettingItem, SettingsList, Text } from "@earendil-works/pi-tui";
 
-import { analyzeCommand, splitCommandChain } from "./analyze.ts";
+import { evaluateCommandChain, type CommandVerdict } from "./analyze.ts";
 import { runCheckers, type CheckerRunResult } from "./checkers.ts";
 import { DEFAULT_CONFIG, parseCheckerEnabled, parseGuardMode, parseScopeMode, type GuardMode, type ScopeMode } from "./config.ts";
-import { afterVotes, decideGuardStep, type CommandCategory } from "./decide.ts";
-import { commandReadsSecrets, evaluateCommandPolicy } from "./policy.ts";
-import { evaluateReadOnlyCommand } from "./read-only.ts";
-import { evaluateScope, resolveScopePath } from "./scope.ts";
+import { afterVotes } from "./decide.ts";
+import { resolveScopePath } from "./scope.ts";
 import { promptForDecision } from "./ui.ts";
 
 const STATE_ENTRY = "max-bash-guard-state";
@@ -72,17 +71,22 @@ export default function (pi: ExtensionAPI) {
 		pi.appendEntry<GuardState>(STATE_ENTRY, { mode, scope, checkerModel, checkerEnabled, timestamp: Date.now() });
 	}
 
-	async function askUser(ctx: ExtensionContext, command: string, reason: string, scopePath?: string): Promise<GuardDecision> {
-		const analysis = analyzeCommand(command, ctx.cwd, scopePath);
+	function blockReasons(blocked: readonly CommandVerdict[]): string[] {
+		return blocked.map((item, index) => `${index + 1}. ${item.reason ?? "blocked"}`);
+	}
+
+	async function askUser(ctx: ExtensionContext, command: string, blocked: readonly CommandVerdict[]): Promise<GuardDecision> {
+		const reasons = blockReasons(blocked);
+		const summary = reasons.join("; ");
 		if (!ctx.hasUI) {
-			return { allowed: false, reason: `${TITLE}: ${reason}. Blocked in non-interactive mode.` };
+			return { allowed: false, reason: `${TITLE}: ${summary}. Blocked in non-interactive mode.` };
 		}
 		if (ctx.mode === "tui") {
-			const allowed = await promptForDecision(ctx, { title: TITLE, command, spans: analysis.spans, reason });
-			return allowed ? { allowed: true } : { allowed: false, reason: `${TITLE}: ${reason}. User denied.` };
+			const allowed = await promptForDecision(ctx, { title: TITLE, command, spans: blocked, reasons });
+			return allowed ? { allowed: true } : { allowed: false, reason: `${TITLE}: ${summary}. User denied.` };
 		}
-		const allowed = await ctx.ui.confirm(TITLE, `$ ${command}\n\n${reason}\n\nAllow this command?`);
-		return allowed ? { allowed: true } : { allowed: false, reason: `${TITLE}: ${reason}. User denied.` };
+		const allowed = await ctx.ui.confirm(TITLE, `$ ${command}\n\n${reasons.join("\n")}\n\nAllow this command?`);
+		return allowed ? { allowed: true } : { allowed: false, reason: `${TITLE}: ${summary}. User denied.` };
 	}
 
 	function voteReason(result: CheckerRunResult): string {
@@ -90,57 +94,43 @@ export default function (pi: ExtensionAPI) {
 		return `Checker did not agree the command is safe (${safe} safe, ${destructive} destructive, ${unknown} unknown of ${total}).`;
 	}
 
-	function categorize(command: string, cwd: string, scopePath: string | undefined): CommandCategory {
-		if (commandReadsSecrets(command, cwd)) return "secret";
-		let sawUnknown = false;
-		for (const segment of splitCommandChain(command)) {
-			if (scopePath && evaluateScope(segment.text, cwd, scopePath).action === "review") return "scope";
-			if (evaluateReadOnlyCommand(segment.text, cwd).action === "allow") continue;
-			if (evaluateCommandPolicy(segment.text, cwd).action === "review") return "write";
-			sawUnknown = true;
-		}
-		return sawUnknown ? "unknown" : "read-only";
-	}
-
-	function categoryReason(command: string, cwd: string, category: CommandCategory, scopePath: string | undefined): string {
-		if (category === "secret") return "command reads a secret";
-		if (category === "scope") {
-			for (const segment of splitCommandChain(command)) {
-				const decision = evaluateScope(segment.text, cwd, scopePath);
-				if (decision.action === "review") return decision.reason;
-			}
-			return "path outside scope";
-		}
-		if (category === "write") {
-			const policy = evaluateCommandPolicy(command, cwd);
-			return policy.action === "review" ? policy.reason : "write or destructive command";
-		}
-		return "command is not proven read-only";
-	}
-
 	async function guardCommand(ctx: ExtensionContext, command: string): Promise<GuardDecision> {
 		if (mode === "off") return { allowed: true };
 
 		const scopePath = resolveScopePath(scope, ctx.cwd);
-		const category = categorize(command, ctx.cwd, scopePath);
-		const step = decideGuardStep(mode, category, checkerEnabled);
+		const verdicts = evaluateCommandChain(command, ctx.cwd, scopePath, mode);
+		const blocked = verdicts.filter((item) => !item.safe);
+		let checkerRan = false;
 
-		if (step === "run") return { allowed: true };
-		if (step === "block") {
-			const reason = categoryReason(command, ctx.cwd, category, scopePath);
-			const suffix = category === "scope" ? "Blocked outside scope." : "Blocked in read-only mode.";
-			return { allowed: false, reason: `${TITLE}: ${reason}. ${suffix}` };
-		}
-		if (step === "prompt") {
-			return askUser(ctx, command, categoryReason(command, ctx.cwd, category, scopePath), scopePath);
+		for (const item of verdicts) {
+			if (!item.safe || item.provenReadOnly) continue;
+			if (!checkerEnabled) {
+				item.safe = false;
+				item.reason = "the checker is off and the guard cannot prove this command safe";
+				blocked.push(item);
+				continue;
+			}
+			const result = await runCheckers(ctx, item.text, checkerConfig(), ctx.signal);
+			checkerRan = true;
+			if (afterVotes(result.summary) === "run") continue;
+			item.safe = false;
+			item.reason = voteReason(result);
+			blocked.push(item);
 		}
 
-		const result = await runCheckers(ctx, command, checkerConfig(), ctx.signal);
-		if (afterVotes(result.summary) === "run") {
-			if (ctx.hasUI) ctx.ui.notify("✅ Bash guard: the checker reports the command is safe.", "info");
+		blocked.sort((a, b) => a.start - b.start);
+
+		if (blocked.length === 0) {
+			if (checkerRan && ctx.hasUI) ctx.ui.notify("✅ Bash guard: the checker reports the command is safe.", "info");
 			return { allowed: true };
 		}
-		return askUser(ctx, command, voteReason(result), scopePath);
+
+		if (mode === "read-only") {
+			const reasons = blockReasons(blocked).join("; ");
+			return { allowed: false, reason: `${TITLE}: ${reasons}. Blocked in read-only mode.` };
+		}
+
+		return askUser(ctx, command, blocked);
 	}
 
 	pi.registerFlag("max-guard-mode", {

@@ -187,6 +187,7 @@ function createToolContext(options: {
 } = {}) {
 	let checkerCalls = 0;
 	let promptCalls = 0;
+	const checkedCommands: string[] = [];
 	const models = options.models ?? [{ provider: "test", id: "checker" }];
 	const ctx = {
 		cwd: process.cwd(),
@@ -195,8 +196,9 @@ function createToolContext(options: {
 		mode: "print",
 		modelRegistry: {
 			getAvailableOfType: async () => models,
-			classify: async () => {
+			classify: async (_model: unknown, context: { state: { command: string } }) => {
 				checkerCalls++;
+				checkedCommands.push(context.state.command);
 				return (options.classifyReply ?? (async () => safeResponse()))();
 			},
 		},
@@ -210,7 +212,7 @@ function createToolContext(options: {
 			},
 		},
 	} as unknown as ExtensionContext;
-	return { ctx, counts: () => ({ checkerCalls, promptCalls }) };
+	return { ctx, commands: () => checkedCommands, counts: () => ({ checkerCalls, promptCalls }) };
 }
 
 function safeResponse() {
@@ -219,6 +221,10 @@ function safeResponse() {
 
 function errorResponse() {
 	return { stopReason: "error", errorMessage: "boom", answers: {} };
+}
+
+function destructiveResponse() {
+	return { stopReason: "stop", answers: { safety: { type: "choice", choice: "DESTRUCTIVE" } } };
 }
 
 describe("off mode tool calls", () => {
@@ -292,6 +298,7 @@ describe("on mode tool calls", () => {
 		const decision = await toolCall({ toolName: "bash", input: { command: "python script.py" } }, ctx);
 
 		assert.equal(decision?.block, true);
+		assert.match(decision!.reason, /checker is off/);
 		assert.deepEqual(counts(), { checkerCalls: 0, promptCalls: 1 });
 	});
 
@@ -304,6 +311,53 @@ describe("on mode tool calls", () => {
 
 		assert.equal(decision, undefined);
 		assert.deepEqual(counts(), { checkerCalls: 1, promptCalls: 0 });
+	});
+
+	it("checks each unproven command with its own text", async () => {
+		const { toolCall, sessionStart } = createGuard();
+		const { ctx, commands, counts } = createToolContext({ classifyReply: async () => safeResponse() });
+		startSession(sessionStart, ctx, { mode: "on", checkerEnabled: true });
+
+		const decision = await toolCall({ toolName: "bash", input: { command: "python a.py && python b.py" } }, ctx);
+
+		assert.equal(decision, undefined);
+		assert.deepEqual(commands(), ["python a.py", "python b.py"]);
+		assert.deepEqual(counts(), { checkerCalls: 2, promptCalls: 0 });
+	});
+
+	it("lists every blocked command and reason in one prompt", async () => {
+		const { toolCall, sessionStart } = createGuard();
+		const { ctx, counts } = createToolContext({ classifyReply: async () => destructiveResponse(), confirm: false });
+		startSession(sessionStart, ctx, { mode: "on", checkerEnabled: true });
+
+		const decision = await toolCall({ toolName: "bash", input: { command: "touch marker && python b.py && cat .env" } }, ctx);
+
+		assert.equal(decision?.block, true);
+		assert.match(decision!.reason, /1\. write or destructive command/);
+		assert.match(decision!.reason, /2\. Checker did not agree/);
+		assert.match(decision!.reason, /3\. command reads a secret/);
+		assert.deepEqual(counts(), { checkerCalls: 1, promptCalls: 1 });
+	});
+
+	it("shows every blocked command and reason in one TUI prompt", async () => {
+		const { toolCall, sessionStart } = createGuard();
+		let content = "";
+		const { ctx } = createTuiContext({
+			afterRender: (component) => {
+				content = component.render(120).join("\n");
+			},
+		});
+		startSession(sessionStart, ctx, { mode: "on", checkerEnabled: true });
+
+		const decision = await toolCall({ toolName: "bash", input: { command: "touch marker && cat .env" } }, ctx);
+
+		assert.equal(decision?.block, true);
+		assert.match(content, /error:touch marker/);
+		assert.match(content, /error:cat \.env/);
+		assert.match(content, /warning:1\. write or destructive command/);
+		assert.match(content, /warning:2\. command reads a secret/);
+		assert.doesNotMatch(content, /warning:touch marker/);
+		assert.doesNotMatch(content, /warning:cat \.env/);
 	});
 
 	it("prompts when the checker errors", async () => {
@@ -319,7 +373,7 @@ describe("on mode tool calls", () => {
 });
 
 describe("scope tool calls", () => {
-	it("blocks an out-of-scope path in on mode", async () => {
+	it("prompts for an out-of-scope path in on mode", async () => {
 		const { toolCall, sessionStart } = createGuard();
 		const { ctx, counts } = createToolContext();
 		startSession(sessionStart, ctx, { mode: "on", checkerEnabled: true, scope: "cwd" });
@@ -328,8 +382,8 @@ describe("scope tool calls", () => {
 
 		assert.equal(decision?.block, true);
 		assert.match(decision!.reason, /path outside scope/);
-		assert.match(decision!.reason, /Blocked outside scope/);
-		assert.deepEqual(counts(), { checkerCalls: 0, promptCalls: 0 });
+		assert.match(decision!.reason, /User denied/);
+		assert.deepEqual(counts(), { checkerCalls: 0, promptCalls: 1 });
 	});
 
 	it("allows an out-of-scope path when scope is off", async () => {

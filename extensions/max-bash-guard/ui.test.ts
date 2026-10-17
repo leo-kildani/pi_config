@@ -30,6 +30,16 @@ describe("renderHighlightedCommand", () => {
 		assert.equal(rendered, "<error>**rm -rf /**</error>");
 	});
 
+	it("highlights every blocked span in a three-command chain", () => {
+		const command = "rm a && rm b && rm c";
+		const rendered = renderHighlightedCommand(command, [
+			{ text: "rm c", start: 16, end: 20 },
+			{ text: "rm a", start: 0, end: 4 },
+			{ text: "rm b", start: 8, end: 12 },
+		], theme);
+		assert.equal(rendered, "<error>**rm a**</error> && <error>**rm b**</error> && <error>**rm c**</error>");
+	});
+
 	it("sorts spans that arrive out of order", () => {
 		const command = "rm a && rm b";
 		const rendered = renderHighlightedCommand(command, [

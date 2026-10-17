@@ -2,11 +2,13 @@
  * Chain analysis for a bash command.
  *
  * splitCommandChain breaks a command on the unquoted separators ;, &&, ||, |,
- * and newline. analyzeCommand runs the deterministic policy on each segment and
- * reports the destructive segments with their source offsets.
+ * and newline. evaluateCommandChain runs the deterministic guard on each
+ * segment and returns one verdict per command with its source offsets.
  */
 
-import { evaluateCommandPolicy } from "./policy.ts";
+import type { GuardMode } from "./config.ts";
+import { commandReadsSecrets, evaluateCommandPolicy } from "./policy.ts";
+import { evaluateReadOnlyCommand } from "./read-only.ts";
 import { evaluateScope } from "./scope.ts";
 
 export interface CommandSpan {
@@ -15,10 +17,13 @@ export interface CommandSpan {
 	end: number;
 }
 
-export interface CommandAnalysis {
-	destructive: boolean;
-	spans: CommandSpan[];
-	reasons: string[];
+export interface CommandVerdict {
+	text: string;
+	start: number;
+	end: number;
+	safe: boolean;
+	provenReadOnly: boolean;
+	reason?: string;
 }
 
 function pushTrimmed(command: string, spans: CommandSpan[], from: number, to: number): void {
@@ -84,36 +89,31 @@ export function splitCommandChain(command: string): CommandSpan[] {
 	return spans;
 }
 
-function wholeCommandSpan(command: string): CommandSpan | null {
-	const spans: CommandSpan[] = [];
-	pushTrimmed(command, spans, 0, command.length);
-	return spans[0] ?? null;
+function verdict(span: CommandSpan, safe: boolean, provenReadOnly: boolean, reason?: string): CommandVerdict {
+	return { ...span, safe, provenReadOnly, reason };
 }
 
-export function analyzeCommand(command: string, cwd: string, scopePath?: string): CommandAnalysis {
-	const spans: CommandSpan[] = [];
-	const reasons: string[] = [];
+function evaluateSegment(span: CommandSpan, cwd: string, scopePath: string | undefined, mode: GuardMode): CommandVerdict {
+	if (mode === "off") return verdict(span, true, true);
+	if (commandReadsSecrets(span.text, cwd)) return verdict(span, false, false, "command reads a secret");
 
-	for (const segment of splitCommandChain(command)) {
-		const policy = evaluateCommandPolicy(segment.text, cwd);
-		const scope = evaluateScope(segment.text, cwd, scopePath);
-		const reason = scope.action === "review" ? scope.reason : policy.action === "review" ? policy.reason : undefined;
-		if (reason) {
-			spans.push(segment);
-			reasons.push(reason);
-		}
-	}
+	const scope = evaluateScope(span.text, cwd, scopePath);
+	if (scope.action === "review") return verdict(span, false, false, scope.reason);
 
-	if (spans.length === 0) {
-		const policy = evaluateCommandPolicy(command, cwd);
-		const scope = evaluateScope(command, cwd, scopePath);
-		const reason = scope.action === "review" ? scope.reason : policy.action === "review" ? policy.reason : undefined;
-		if (reason) {
-			const whole = wholeCommandSpan(command);
-			if (whole) spans.push(whole);
-			reasons.push(reason);
-		}
-	}
+	if (evaluateReadOnlyCommand(span.text, cwd).action === "allow") return verdict(span, true, true);
 
-	return { destructive: spans.length > 0, spans, reasons };
+	const policy = evaluateCommandPolicy(span.text, cwd);
+	if (policy.action === "review") return verdict(span, false, false, policy.reason);
+
+	if (mode === "read-only") return verdict(span, false, false, "command is not proven read-only");
+	return verdict(span, true, false);
+}
+
+export function evaluateCommandChain(
+	command: string,
+	cwd: string,
+	scopePath: string | undefined,
+	mode: GuardMode,
+): CommandVerdict[] {
+	return splitCommandChain(command).map((span) => evaluateSegment(span, cwd, scopePath, mode));
 }

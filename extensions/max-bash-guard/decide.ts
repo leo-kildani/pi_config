@@ -1,14 +1,10 @@
 /**
- * Pure decision pipeline for the max-bash-guard extension.
+ * Pure vote helpers for the max-bash-guard extension.
  *
- * decideGuardStep maps the mode, the command category, and the checker setting
- * to a guard step. afterVotes applies the single-checker result.
+ * summarizeVotes counts each checker reply. afterVotes applies the
+ * single-checker result.
  */
 
-import type { GuardMode } from "./config.ts";
-
-export type CommandCategory = "read-only" | "secret" | "write" | "scope" | "unknown";
-export type GuardStep = "run" | "block" | "prompt" | "vote";
 export type CheckerReply = "safe" | "destructive" | "unknown";
 
 export interface VoteSummary {
@@ -30,17 +26,6 @@ export function summarizeVotes(replies: readonly CheckerReply[]): VoteSummary {
 	return { safe, destructive, unknown, total: replies.length };
 }
 
-export function decideGuardStep(mode: GuardMode, category: CommandCategory, checkerEnabled: boolean): GuardStep {
-	if (mode === "off") return "run";
-	if (category === "read-only") return "run";
-	if (mode === "read-only") return "block";
-	// A scope violation always blocks. Secret and write commands prompt the
-	// user. Only unknown commands may auto-allow after a checker vote.
-	if (category === "scope") return "block";
-	if (category === "secret" || category === "write") return "prompt";
-	return checkerEnabled ? "vote" : "prompt";
-}
-
-export function afterVotes(summary: VoteSummary): GuardStep {
+export function afterVotes(summary: VoteSummary): "run" | "prompt" {
 	return summary.safe >= 1 ? "run" : "prompt";
 }
