@@ -86,6 +86,7 @@ function hasUnsafeSyntax(command: string): boolean {
 		const char = command[i]!;
 		if (char === "\n" || char === "\r" || char === "`") return true;
 		if (char === "$" && command[i + 1] === "(") return true;
+		if (char === "<" && command[i + 1] === "(") return true;
 		if (quote) {
 			if (char === quote) quote = null;
 			continue;
@@ -193,13 +194,13 @@ const GIT_WRITE_PATTERN = /^\s*git\s+(add|commit|push|pull|fetch|reset|checkout|
 const PACKAGE_WRITE_PATTERN = /^\s*(npm|pnpm|yarn|bun|pip|pip3|poetry|cargo|go)\s+(install|add|remove|uninstall|update|upgrade|publish|ci)\b/i;
 const SED_INPLACE_PATTERN = /\bsed\s+(-[^\s]*i|--in-place)/i;
 
-interface Effect {
+export interface CommandEffect {
 	writesData: boolean;
 	destroysData: boolean;
 	reason: string;
 }
 
-const CLOUD_EFFECTS: Array<{ pattern: RegExp; effect: Effect }> = [
+const CLOUD_EFFECTS: Array<{ pattern: RegExp; effect: CommandEffect }> = [
 	{ pattern: /^\s*(terraform|terragrunt)\s+.*\b(destroy|state\s+(rm|mv))\b/i, effect: { writesData: false, destroysData: true, reason: "Terraform/Terragrunt state or resource mutation" } },
 	{ pattern: /^\s*(terraform|terragrunt)\s+.*\b(apply|import|state\s+push|taint|untaint|force-unlock)\b/i, effect: { writesData: true, destroysData: false, reason: "Terraform/Terragrunt state or resource mutation" } },
 	{ pattern: /^\s*gcloud\s+.*\bdelete\b/i, effect: { writesData: false, destroysData: true, reason: "gcloud cloud-resource or credential mutation" } },
@@ -212,7 +213,7 @@ const CLOUD_EFFECTS: Array<{ pattern: RegExp; effect: Effect }> = [
 	{ pattern: /^\s*kubectl\s+.*\b(apply|patch|create|replace|scale|rollout|cordon|drain|taint|annotate|label|exec)\b/i, effect: { writesData: true, destroysData: false, reason: "Kubernetes cluster mutation" } },
 ];
 
-const SENSITIVE_EFFECTS: Array<{ pattern: RegExp; effect: Effect }> = [
+const SENSITIVE_EFFECTS: Array<{ pattern: RegExp; effect: CommandEffect }> = [
 	{ pattern: /^\s*(sudo|su)\b/i, effect: { writesData: true, destroysData: false, reason: "privilege escalation" } },
 	{ pattern: /curl\b.*\|\s*(sh|bash)|wget\b.*\|\s*(sh|bash)/i, effect: { writesData: true, destroysData: false, reason: "remote script execution" } },
 	{ pattern: /\bchmod\s+(-[^\s]*\s+)?777\b/i, effect: { writesData: true, destroysData: false, reason: "world-writable permissions" } },
@@ -220,7 +221,19 @@ const SENSITIVE_EFFECTS: Array<{ pattern: RegExp; effect: Effect }> = [
 
 const EFFECTS = [...CLOUD_EFFECTS, ...SENSITIVE_EFFECTS];
 
-function specificEffect(command: string): Effect | undefined {
+export interface DetectedCommandEffect extends CommandEffect {
+	index: number;
+}
+
+export function detectSensitiveEffect(command: string): DetectedCommandEffect | undefined {
+	for (const { pattern, effect } of SENSITIVE_EFFECTS) {
+		const match = pattern.exec(command);
+		if (match) return { ...effect, index: match.index };
+	}
+	return undefined;
+}
+
+function specificEffect(command: string): CommandEffect | undefined {
 	for (const { pattern, effect } of EFFECTS) {
 		if (pattern.test(command)) return effect;
 	}

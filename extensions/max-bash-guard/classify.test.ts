@@ -172,7 +172,7 @@ describe("classifyCommand", () => {
 	});
 
 	it("marks unsafe syntax as not read-only", () => {
-		for (const command of ["cat README.md > copy.txt", "cat $(touch marker)", "cat README.md\ntouch marker", "cat README.md &"]) {
+		for (const command of ["cat README.md > copy.txt", "cat $(touch marker)", "cat <(sh evil.sh)", "cat >(sh evil.sh)", "cat README.md\ntouch marker", "cat README.md &"]) {
 			assert.equal(classifyCommand(command, cwd).readOnly, false, command);
 		}
 	});
