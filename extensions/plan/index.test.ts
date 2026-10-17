@@ -1,7 +1,7 @@
 /** Tests for the plan extension widget, argument completions, and command handler. */
 
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
@@ -160,6 +160,41 @@ describe("plan build completion", () => {
 });
 
 describe("plan command handler", () => {
+	it("creates generated plans under <cwd>/.plans", async () => {
+		const directory = await mkdtemp(join(tmpdir(), "pi-plan-"));
+		try {
+			const { sessionStart, command, sentMessages } = createPlanExtension();
+			const { ctx, widgets } = createContext("built", directory);
+			sessionStart({}, ctx);
+
+			await command.handler?.("Add project plan directory", ctx as never);
+
+			const planPath = join(directory, ".plans", "add-project-plan-session-1.md");
+			assert.equal((await stat(join(directory, ".plans"))).isDirectory(), true);
+			assert.ok(sentMessages.at(-1)?.includes(planPath));
+			assert.equal(widgets.at(-1)?.[0], `accent:Current Plan: ${planPath}`);
+		} finally {
+			await rm(directory, { recursive: true, force: true });
+		}
+	});
+
+	it("adds a numeric suffix when a generated plan name collides", async () => {
+		const directory = await mkdtemp(join(tmpdir(), "pi-plan-"));
+		try {
+			await mkdir(join(directory, ".plans"), { recursive: true });
+			await writeFile(join(directory, ".plans", "add-project-plan-session-1.md"), "existing");
+			const { sessionStart, command, sentMessages } = createPlanExtension();
+			const { ctx } = createContext("built", directory);
+			sessionStart({}, ctx);
+
+			await command.handler?.("Add project plan directory", ctx as never);
+
+			assert.ok(sentMessages.at(-1)?.includes(join(directory, ".plans", "add-project-plan-session-1-2.md")));
+		} finally {
+			await rm(directory, { recursive: true, force: true });
+		}
+	});
+
 	it("/plan template writes the template file and does not change the plan", async () => {
 		const directory = await mkdtemp(join(tmpdir(), "pi-plan-"));
 		try {

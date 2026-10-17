@@ -1,9 +1,9 @@
 /**
  * Editor-slot selector for the max-bash-guard extension.
  *
- * renderHighlightedCommand keeps the full command and marks the destructive
- * spans in bold and the error color. decisionForKey maps a keypress to an allow
- * or deny choice. promptForDecision shows the selector in the editor slot above
+ * renderHighlightedCommand keeps the full command and marks every blocked span
+ * in bold and the error color. decisionForKey maps a keypress to an allow or
+ * deny choice. promptForDecision shows the selector in the editor slot above
  * the conversation and resolves true on allow and false on deny.
  */
 
@@ -47,7 +47,7 @@ export interface DecisionPrompt {
 	title: string;
 	command: string;
 	spans: readonly CommandSpan[];
-	reason: string;
+	reasons: readonly string[];
 }
 
 export async function promptForDecision(ctx: ExtensionContext, prompt: DecisionPrompt): Promise<boolean> {
@@ -60,7 +60,9 @@ export async function promptForDecision(ctx: ExtensionContext, prompt: DecisionP
 		container.addChild(new Spacer(1));
 		container.addChild(new Text("  " + theme.fg("muted", "$ ") + renderHighlightedCommand(prompt.command, prompt.spans, theme), 1, 0));
 		container.addChild(new Spacer(1));
-		container.addChild(new Text("  " + theme.fg("warning", prompt.reason), 1, 0));
+		for (const reason of prompt.reasons) {
+			container.addChild(new Text("  " + theme.fg("warning", reason), 1, 0));
+		}
 		container.addChild(new Spacer(1));
 
 		const listTheme: SelectListTheme = {

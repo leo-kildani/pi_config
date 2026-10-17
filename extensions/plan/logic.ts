@@ -10,10 +10,6 @@ const FILLER_WORDS = new Set([
 	"is", "are", "be", "do", "does", "did",
 ]);
 
-export function plansDirectory(agentDir: string): string {
-	return join(agentDir, "plans");
-}
-
 /** Project plans directory: <cwd>/.plans. */
 export function projectPlansDirectory(cwd: string): string {
 	return join(cwd, ".plans");

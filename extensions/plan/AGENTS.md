@@ -57,7 +57,7 @@ Keep these properties. They are the purpose of the extension.
 - A built plan stays current until a new plan is created.
 - The plan name is the first three non-filler words plus the session id. Example: `build-plan-extension-01a12d01.md`.
 - A name collision adds a `-2`, `-3`, or later suffix.
-- Plan files live in `~/.pi/agent/plans`. `/plan template` and `/plan set` use `<cwd>/.plans`.
+- Plan files created by `/plan <objective>` and `/plan template` live in `<cwd>/.plans`. `/plan set` can select these files or any existing absolute or relative path.
 - The model writes the plan file for `/plan <objective>`. The extension writes the file for `/plan template`. The extension fixes the path first in both cases.
 - `/plan template` adds a `-2`, `-3`, or later suffix when the name collides.
 - `/plan set` offers the `<cwd>/.plans` files through the command argument completions. A bare `/plan set` opens a select list. Both show the file name only.

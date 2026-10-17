@@ -9,17 +9,10 @@ import {
 	planInstructions,
 	planTemplate,
 	planTemplateFileName,
-	plansDirectory,
 	projectPlansDirectory,
 	slugifyPlanName,
 	synthesizePlanName,
 } from "./logic.ts";
-
-describe("plansDirectory", () => {
-	it("places plans inside the configured Pi agent directory", () => {
-		assert.equal(plansDirectory("/custom/pi/agent"), "/custom/pi/agent/plans");
-	});
-});
 
 describe("projectPlansDirectory", () => {
 	it("places project plans inside <cwd>/.plans", () => {

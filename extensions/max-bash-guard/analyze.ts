@@ -2,11 +2,12 @@
  * Chain analysis for a bash command.
  *
  * splitCommandChain breaks a command on the unquoted separators ;, &&, ||, |,
- * and newline. analyzeCommand runs the deterministic policy on each segment and
- * reports the destructive segments with their source offsets.
+ * and newline. It keeps command substitutions and backtick groups together.
+ * classifyCommandChain classifies each segment and adds its scope result.
+ * Every span keeps its source offsets.
  */
 
-import { evaluateCommandPolicy } from "./policy.ts";
+import { classifyCommand, detectSensitiveEffect, type CommandClassification } from "./classify.ts";
 import { evaluateScope } from "./scope.ts";
 
 export interface CommandSpan {
@@ -15,10 +16,9 @@ export interface CommandSpan {
 	end: number;
 }
 
-export interface CommandAnalysis {
-	destructive: boolean;
-	spans: CommandSpan[];
-	reasons: string[];
+export interface ClassifiedSpan extends CommandSpan {
+	classification: CommandClassification;
+	scopeReason?: string;
 }
 
 function pushTrimmed(command: string, spans: CommandSpan[], from: number, to: number): void {
@@ -34,13 +34,14 @@ export function splitCommandChain(command: string): CommandSpan[] {
 	const spans: CommandSpan[] = [];
 	let start = 0;
 	let i = 0;
-	let quote: "'" | '"' | null = null;
+	let quote: "'" | '"' | "`" | null = null;
+	let parenDepth = 0;
 
 	while (i < command.length) {
 		const char = command[i]!;
 
 		if (quote) {
-			if (char === "\\" && quote === '"') {
+			if (char === "\\" && (quote === '"' || quote === "`")) {
 				i += 2;
 				continue;
 			}
@@ -53,8 +54,22 @@ export function splitCommandChain(command: string): CommandSpan[] {
 			i += 2;
 			continue;
 		}
-		if (char === "'" || char === '"') {
+		if (char === "'" || char === '"' || char === "`") {
 			quote = char;
+			i += 1;
+			continue;
+		}
+		if (char === "(") {
+			parenDepth += 1;
+			i += 1;
+			continue;
+		}
+		if (char === ")") {
+			if (parenDepth > 0) parenDepth -= 1;
+			i += 1;
+			continue;
+		}
+		if (parenDepth > 0) {
 			i += 1;
 			continue;
 		}
@@ -84,36 +99,88 @@ export function splitCommandChain(command: string): CommandSpan[] {
 	return spans;
 }
 
-function wholeCommandSpan(command: string): CommandSpan | null {
-	const spans: CommandSpan[] = [];
-	pushTrimmed(command, spans, 0, command.length);
-	return spans[0] ?? null;
+function innerGroups(command: string): string[] {
+	const groups: string[] = [];
+	let quote: "'" | '"' | "`" | null = null;
+	let depth = 0;
+	let start = -1;
+
+	for (let i = 0; i < command.length; i++) {
+		const char = command[i]!;
+		if (quote) {
+			if (char === "\\" && (quote === '"' || quote === "`")) {
+				i += 1;
+				continue;
+			}
+			if (char === quote) quote = null;
+			continue;
+		}
+		if (char === "\\") {
+			i += 1;
+			continue;
+		}
+		if (char === "'" || char === '"' || char === "`") {
+			quote = char;
+			continue;
+		}
+		if (char === "(") {
+			if (depth === 0) start = i + 1;
+			depth += 1;
+			continue;
+		}
+		if (char === ")" && depth > 0) {
+			depth -= 1;
+			if (depth === 0 && start >= 0) {
+				groups.push(command.slice(start, i));
+				start = -1;
+			}
+		}
+	}
+	return groups;
 }
 
-export function analyzeCommand(command: string, cwd: string, scopePath?: string): CommandAnalysis {
-	const spans: CommandSpan[] = [];
-	const reasons: string[] = [];
-
-	for (const segment of splitCommandChain(command)) {
-		const policy = evaluateCommandPolicy(segment.text, cwd);
-		const scope = evaluateScope(segment.text, cwd, scopePath);
-		const reason = scope.action === "review" ? scope.reason : policy.action === "review" ? policy.reason : undefined;
-		if (reason) {
-			spans.push(segment);
-			reasons.push(reason);
+function mergeNestedClassification(classification: CommandClassification, command: string, cwd: string): void {
+	for (const group of innerGroups(command)) {
+		for (const nested of classifyCommandChain(group, cwd, undefined)) {
+			const inner = nested.classification;
+			if (inner.readsSecrets) {
+				classification.readsSecrets = true;
+				classification.secretReason = classification.secretReason ?? inner.secretReason;
+			}
+			if (inner.writesData || inner.destroysData) {
+				classification.readOnly = false;
+				classification.writesData = classification.writesData || inner.writesData;
+				classification.destroysData = classification.destroysData || inner.destroysData;
+				classification.effectReason = classification.effectReason ?? inner.effectReason;
+			}
 		}
 	}
+}
 
-	if (spans.length === 0) {
-		const policy = evaluateCommandPolicy(command, cwd);
-		const scope = evaluateScope(command, cwd, scopePath);
-		const reason = scope.action === "review" ? scope.reason : policy.action === "review" ? policy.reason : undefined;
-		if (reason) {
-			const whole = wholeCommandSpan(command);
-			if (whole) spans.push(whole);
-			reasons.push(reason);
+export function classifyCommandChain(
+	command: string,
+	cwd: string,
+	scopePath: string | undefined,
+): ClassifiedSpan[] {
+	const spans = splitCommandChain(command);
+	const chainEffect = detectSensitiveEffect(command);
+	const effectSpan = chainEffect
+		? spans.find((span) => chainEffect.index >= span.start && chainEffect.index < span.end) ?? spans[0]
+		: undefined;
+	return spans.map((span) => {
+		const classification = classifyCommand(span.text, cwd);
+		if (chainEffect && span === effectSpan) {
+			classification.readOnly = false;
+			classification.writesData = classification.writesData || chainEffect.writesData;
+			classification.destroysData = classification.destroysData || chainEffect.destroysData;
+			classification.effectReason = classification.effectReason ?? chainEffect.reason;
 		}
-	}
-
-	return { destructive: spans.length > 0, spans, reasons };
+		mergeNestedClassification(classification, span.text, cwd);
+		const scope = evaluateScope(span.text, cwd, scopePath);
+		return {
+			...span,
+			classification,
+			...(scope.action === "review" ? { scopeReason: scope.reason } : {}),
+		};
+	});
 }
