@@ -14,7 +14,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 
 import type { ScopeMode } from "./config.ts";
-import { extractPathArgs, isInTmp, isInside, normalizeCommand, resolveCommandPath } from "./policy.ts";
+import { extractPathArgs, isInTmp, isInside, normalizeCommand, resolveCommandPath } from "./classify.ts";
 
 export type ScopeDecision = { action: "none" } | { action: "review"; reason: string };
 
