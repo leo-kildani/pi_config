@@ -31,21 +31,23 @@ while read -r pkg; do pi install "$pkg"; done < packages.txt
 
 The Docker image runs as the unprivileged `node` user with UID and GID 1000. The user's home directory is `/home/node`. Pi stores its agent configuration, sessions, and state in `/home/node/.pi/agent`.
 
-The harness mounts the named volume `pi-global-config-data` at `/home/node/.pi/agent`. This volume preserves agent configuration, sessions, and state between container runs.
+The Docker script mounts the named volume `pi-global-config-data` at `/home/node/.pi/agent`. This volume preserves agent configuration, sessions, and state between container runs.
 
-From the repository root, enter the `docker/` directory and run the harness:
+From the repository root, enter the `docker/` directory and run the Docker script:
 
 ```bash
 cd docker
-./run-pi-harness.sh
+./run-pi-harness-docker.sh
 ```
 
-The script removes any existing container named `pi-coding-agent-container` with `docker rm -f`. This removes running, stopped, and paused containers. The script then starts a fresh container with `--rm`. Docker removes that container when it exits.
+Apple container users must use `./run-pi-harness-apple-container.sh` instead.
 
-Without arguments, the script mounts no project directories. The container has an empty `/workspace` directory. Pass one or more project directories to mount each project at `/workspace/<dir-name>`:
+The Docker script removes any existing container named `pi-coding-agent-container` with `docker rm -f`. This removes running, stopped, and paused containers. The script then starts a fresh container with `--rm`. Docker removes that container when it exits.
+
+Without arguments, the Docker script mounts no project directories. The container has an empty `/workspace` directory. Pass one or more project directories to mount each project at `/workspace/<dir-name>`:
 
 ```bash
-./run-pi-harness.sh ~/path/to/projectA ~/path/to/projectB
+./run-pi-harness-docker.sh ~/path/to/projectA ~/path/to/projectB
 ```
 
 The script mounts these directories as `/workspace/projectA` and `/workspace/projectB`.
@@ -63,7 +65,7 @@ Place a `.guard` file in the root of each project that needs file masking. Add o
 credentials.json
 ```
 
-The script finds matching files and bind-mounts `/dev/null` over each file in read-only mode (`:ro`). Reads return 0 bytes. Writes fail with `Read-only file system`. The script also masks `.guard` itself, so the agent cannot inspect the blocklist.
+The Docker script finds matching files and bind-mounts `/dev/null` over each file in read-only mode (`:ro`). Reads return 0 bytes. Writes fail with `Read-only file system`. The script also masks `.guard` itself, so the agent cannot inspect the blocklist.
 
 ## Develop
 
