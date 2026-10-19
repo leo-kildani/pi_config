@@ -1,7 +1,7 @@
 ---
 name: code-reviewer
 description: Read-only code review for bugs, risk, missing tests, speed, and unnecessary complexity
-tools: read, fffind, ffgrep, bash
+tools: read, fffind, ffgrep, ls
 skills: ponytail-review, writing-in-ste
 extensions: "@ff-labs/pi-fff:src"
 model: openrouter/deepseek/deepseek-v4.1-flash
