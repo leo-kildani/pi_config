@@ -181,7 +181,7 @@ Project agents override user agents with the same name when `agentScope: "both"`
 | `explorer` | Read-only codebase recon and task scoping | openrouter/openai/gpt-6-luna (low) | read, fffind, ffgrep, bash |
 | `code-reviewer` | Read-only code review | openrouter/deepseek/deepseek-v4.1-flash (high) | read, fffind, ffgrep, bash |
 
-`explorer` loads the `pi-fff` and `max-bash-guard` extensions. `code-reviewer` loads only its declared review skill and extensions.
+`explorer` loads the `pi-fff` extensions. `code-reviewer` loads only its declared review skill and extensions.
 
 ## Error Handling
 

@@ -8,7 +8,6 @@
   "pi": {
     "skills": ["./skills"],
     "extensions": [
-      "./extensions/max-bash-guard/index.ts",
       "./extensions/plan/index.ts",
       "./extensions/safe-subagents/index.ts",
       "./extensions/todowrite/index.ts",

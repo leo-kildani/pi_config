@@ -2,7 +2,7 @@
 name: explorer
 description: Read-only codebase recon and task scoping; returns relevant findings for handoff
 tools: read, fffind, ffgrep, bash
-extensions: "@ff-labs/pi-fff:src, @leo-kildani/pi_config:max-bash-guard"
+extensions: "@ff-labs/pi-fff:src"
 model: openrouter/openai/gpt-6-luna
 thinking: low
 ---
