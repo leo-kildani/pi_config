@@ -73,4 +73,4 @@ That file is local to this machine. Do not commit it.
 
 ## Sample agents
 
-`explorer` loads the `pi-fff` and `max-bash-guard` extensions. `code-reviewer` declares its review skill and extensions; keep those resources available when testing the sample agent.
+`explorer` loads the `pi-fff` extensions. `code-reviewer` declares its review skill and extensions; keep those resources available when testing the sample agent.

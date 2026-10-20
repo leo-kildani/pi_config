@@ -127,11 +127,11 @@ describe("discoverAgents", () => {
 
 	it("reads quoted package/resource selectors", () => {
 		const dir = writeAgent(
-			'---\nname: a\ndescription: d\nextensions: "@ff-labs/pi-fff:src, @leo-kildani/pi_config:max-bash-guard"\n---\nBody\n',
+			'---\nname: a\ndescription: d\nextensions: "@ff-labs/pi-fff:src, @leo-kildani/pi_config:plan"\n---\nBody\n',
 		);
 		assert.deepEqual(discoverAgents(dir, "project").agents[0].extensions, [
 			"@ff-labs/pi-fff:src",
-			"@leo-kildani/pi_config:max-bash-guard",
+			"@leo-kildani/pi_config:plan",
 		]);
 	});
 
@@ -260,7 +260,7 @@ describe("resolveExtensionPaths", () => {
 		},
 		{
 			sourceInfo: {
-				path: "/packages/pi_config/extensions/max-bash-guard/index.ts",
+				path: "/packages/pi_config/extensions/plan/index.ts",
 				source: "git:github.com/leo-kildani/pi_config",
 				baseDir: "/packages/pi_config",
 			},
@@ -271,9 +271,9 @@ describe("resolveExtensionPaths", () => {
 		assert.deepEqual(resolveExtensionPaths([
 			"@ff-labs/pi-fff",
 			"@ff-labs/pi-fff:src",
-			"@leo-kildani/pi_config:max-bash-guard",
+			"@leo-kildani/pi_config:plan",
 		], sources), {
-			paths: ["/packages/pi-fff/src/index.ts", "/packages/pi_config/extensions/max-bash-guard/index.ts"],
+			paths: ["/packages/pi-fff/src/index.ts", "/packages/pi_config/extensions/plan/index.ts"],
 			unknown: [],
 			ambiguous: [],
 		});
@@ -284,7 +284,7 @@ describe("resolveExtensionPaths", () => {
 			"@ff-labs/pi-fff",
 			"@ff-labs/pi-fff:src",
 			"@leo-kildani/pi_config",
-			"@leo-kildani/pi_config:max-bash-guard",
+			"@leo-kildani/pi_config:plan",
 		]);
 	});
 
