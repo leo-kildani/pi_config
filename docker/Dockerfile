@@ -13,7 +13,8 @@ RUN npm install -g --ignore-scripts @earendil-works/pi-coding-agent
 
 # Set up non-root directories and permissions
 RUN mkdir -p /home/node/.pi/agent /workspace \
-  && chown -R node:node /home/node /workspace
+  && chown -R node:node /home/node /workspace \
+  && chown -R node:node /usr/local/lib/node_modules /usr/local/bin
 
 # Switch execution context to the unprivileged user
 USER node
