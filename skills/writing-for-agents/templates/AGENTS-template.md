@@ -38,7 +38,7 @@ Replace each placeholder. Delete each section that does not apply. Keep the file
 
 - ✅ **Always:** [safe, expected actions]
 - ⚠️ **Ask first:** [actions that need a question]
-- 🚫 **Never:** [off-limits actions, including secrets and generated directories]
+- 🚫 **Never:** [off-limits actions, such as secrets and generated directories]
 
 ## Git and Pull Request Workflow
 

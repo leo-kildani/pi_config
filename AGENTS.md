@@ -40,7 +40,7 @@ This repository is one pi package. It contains skills in `skills/` and extension
 - `package.json` — the pi manifest. It lists `pi.skills` and `pi.extensions`.
 - `packages.txt` — the external pi packages from `settings.json`. One source per line.
 - `skills/` — skill packages. Each has a `SKILL.md`.
-- `extensions/` — five extensions. Each has an `index.ts` entry point.
+- `extensions/` — three extensions. Each has an `index.ts` entry point.
 - `tsconfig.json` — one type-check config for all extensions.
 
 ## Git workflow
